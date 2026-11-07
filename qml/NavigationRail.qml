@@ -35,6 +35,23 @@ Rectangle {
     // Animated index: the pill slides, it does not jump.
     property var slideSpring: motion.channel("fastSpatial")
 
+    // Which destination currently holds keyboard focus (-1 when the rail does not).
+    // Delegates report into this; the rail's key handlers act on it.
+    property int focusedIndex: -1
+
+    // No focus: true here - the shell root owns keyboard activation (see main.qml).
+    // Key events bubble from the focused delegate to the root, which is always in the
+    // chain even when a window focus change clears the item-level focus.
+
+    function activateFocused() {
+        var i = rail.focusedIndex
+        if (i < 0) i = rail.currentIndex
+        rail.currentIndex = i
+        rail.destinationSelected(i)
+    }
+
+    // (key handling lives on the shell root - see main.qml)
+
     width: collapsed ? collapsedWidth : expandedWidth
     height: parent ? parent.height : 720
     color: Theme.surface
@@ -106,9 +123,27 @@ Rectangle {
                 id: row
                 // Deterministic handle for scripted acceptance: --click-item=nav-3.
                 objectName: "nav-" + index
+                // The rail is the primary way through the app, so its destinations must be
+                // reachable with Tab alone (the engine walks activeFocusOnTab items).
+                activeFocusOnTab: true
+                // The engine routes key events to items that hold "focus" in their scope;
+                // activeFocusOnTab alone makes them Tab-reachable but not key-receiving.
+                focus: true
                 width: list.width
                 height: rail.destinationHeight
                 y: index * rail.rowPitch
+
+                // Focus ring: only while this row holds keyboard focus.
+                Rectangle {
+                    objectName: "nav-focus-ring-" + index
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    radius: Theme.shapeM
+                    color: "transparent"
+                    border.width: row.activeFocus ? 2 : 0
+                    border.color: Theme.primaryHex
+                    visible: row.activeFocus
+                }
 
                 // icon tile
                 Rectangle {
@@ -151,6 +186,11 @@ Rectangle {
                         rail.destinationSelected(index)
                     }
                 }
+
+                // NOTE: Keys.* must NOT live on a Repeater delegate in qml4j v0.2.38 -
+                // attached key signals inside a delegate never fire (measured). The rail
+                // handles keys instead and acts on the index it tracks below.
+                onActiveFocusChanged: if (activeFocus) rail.focusedIndex = index
             }
         }
     }

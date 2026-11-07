@@ -50,6 +50,31 @@ Rectangle {
 
     property int currentPage: 0
 
+    // Page transition envelope: the host springs progress 0 -> 1 with defaultSpatial,
+    // which overshoots slightly. Binding opacity needs a clamp, so it is applied on the
+    // page host only (not on the chrome, which must stay put).
+    property var pageEnvelope: motion.pageChannel()
+
+    onCurrentPageChanged: {
+        motion.pageJump(root.pageEnvelope, 0.0)
+        motion.pageIn(root.pageEnvelope)
+    }
+
+    Component.onCompleted: motion.pageJump(root.pageEnvelope, 1.0)
+
+    // ------------------------------------------------------------------
+    // Keyboard activation at the shell root.
+    //
+    // Measured qml4j behaviour: Keys.* attached to a Repeater delegate never fires, and a
+    // window focus change can clear item-level focus. Key events do reach a focused
+    // ancestor, so the shell handles Enter/Space once, here, and dispatches to whatever
+    // the rail last recorded as focused.
+    // ------------------------------------------------------------------
+    focus: true
+
+    Keys.onReturnPressed: rail.activateFocused()
+    Keys.onSpacePressed: rail.activateFocused()
+
     // ------------------------------------------------------------------
     // left pane
     // ------------------------------------------------------------------
@@ -95,6 +120,8 @@ Rectangle {
             y: topBar.height
             width: centre.width
             height: centre.height - topBar.height
+            // The spring overshoots past 1.0; clamp so opacity never exceeds 1.
+            opacity: Math.min(1, root.pageEnvelope.progress)
 
             DashboardPage {
                 x: 0

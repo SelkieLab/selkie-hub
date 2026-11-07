@@ -39,6 +39,9 @@ Item {
 
     signal toggled(bool checked)
 
+    // Engine focus (FocusManager): Tab-reachable, and a click does not steal focus.
+    activeFocusOnTab: true
+
     implicitWidth: root.trackWidth
     implicitHeight: root.trackHeight
     opacity: root.enabled ? 1.0 : 0.38
@@ -78,5 +81,21 @@ Item {
             root.checked = !root.checked
             root.toggled(root.checked)
         }
+    }
+
+    // Keyboard activation: Enter / Space toggle, same path as a click.
+    Keys.onReturnPressed: if (root.enabled) { root.checked = !root.checked; root.toggled(root.checked) }
+    Keys.onSpacePressed: if (root.enabled) { root.checked = !root.checked; root.toggled(root.checked) }
+
+    // Focus ring bound to the engine's activeFocus (Tab / Shift+Tab only).
+    Rectangle {
+        objectName: "focus-ring"
+        anchors.fill: parent
+        anchors.margins: -4
+        radius: Theme.shapeFull
+        color: "transparent"
+        border.width: 2
+        border.color: Theme.primaryHex
+        visible: root.activeFocus
     }
 }

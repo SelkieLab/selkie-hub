@@ -2,53 +2,38 @@ import QtQuick 2.15
 import ".."
 import "../components"
 
-// SettingsPage - Stage 3a settings skeleton.
+// SettingsPage - Stage 5b settings.
 //
 // WHAT THIS PAGE IS
-//   Three cards: Appearance (seed colour picker + dark mode), Interface (a UI scale
-//   slider that is a Stage 5 hook) and About (version / engine / build lines).
+//   Three cards: Appearance (M3ColorPicker seed picker + dark-mode switch), Interface
+//   (the UI-scale hook) and About.
 //
 // THE SEED PICKER IS REAL
-//   Clicking a swatch calls theme.setSeed(0xFF......) on the ThemeBridge, which
-//   regenerates all 48 MD3E roles from the new HCT seed and writes them back to the
-//   Property fields, so the whole app - rail, top bar, cards, chips - re-seeds live.
-//   The ring around the current swatch is bound to Theme.seedHex, which is the
-//   bridge's own "#RRGGBB", so it follows a re-seed without local state.
+//   M3ColorPicker owns the candidate seeds and calls theme.setSeed(argb) on the
+//   ThemeBridge, which regenerates all 48 MD3E roles from the new HCT seed and writes them
+//   back to the Property fields, so the whole app - rail, top bar, cards, chips - re-seeds
+//   live. The picker's ring/check bind to Theme.seedHex, i.e. to the bridge's own value, so
+//   they follow a re-seed triggered from anywhere, with no local state.
+//   The seed hex strings live in the picker's model on purpose: an inline 0xFF... literal
+//   passed straight to setSeed() saturates to 0x7FFFFFFF (see M3ColorPicker's header).
 //
-// THE UI SCALE SLIDER IS NOT WIRED YET
-//   qml4j has no Controls layer (no Slider, no ProgressBar), so the slider is a
-//   track Rectangle + a thumb Rectangle + one MouseArea with drag.target. The thumb
-//   x is what the drag writes; scaleValue is a binding on that x, so the percentage
-//   label updates from the same source that positions the thumb. Applying the value
-//   (re-scaling type/space/shape in ThemeBridge) is Stage 5.
+// THE UI SCALE SLIDER IS STILL A HOOK
+//   qml4j has no Controls layer (no Slider), so the slider is a track Rectangle + a thumb
+//   Rectangle + one MouseArea with drag.target. Applying the value (re-scaling
+//   type/space/shape in ThemeBridge) stays a host task.
 //
 // PAGE CONTRACT (the shell owns geometry)
 //   Root is Item { id: pageRoot } with no x/y/width/height; the shell sets the box.
 //   Everything is inside a Flickable so a short window can still reach "About".
 //
-// INTERACTIVE OBJECTNAMES: seed-swatch-0 ... seed-swatch-7, setting-dark-mode,
-//   setting-ui-scale (drag surface), settings-appearance / -interface / -about
+// INTERACTIVE OBJECTNAMES: settings-appearance, settings-seed-picker (seed-N inside it),
+//   setting-dark-mode, settings-interface, setting-ui-scale (drag surface), settings-about
 //
-// CONTRACT COMPLIANCE: colours Theme.<role>Hex, radii Theme.shape* (or an exact half
-//   of a measured size for circles), type Theme.type*, spacing Theme.space*. The eight
-//   hex literals below are seed INPUTS (material for the generator), not theme roles.
+// CONTRACT COMPLIANCE: colours Theme.<role>Hex, radii Theme.shape* (or an exact half of a
+//   measured size for circles), type Theme.type*, spacing Theme.space*.
 
 Item {
     id: pageRoot
-
-    // ------------------------------------------------------------------
-    // seed swatches - the eight MD3-ish starter seeds
-    // ------------------------------------------------------------------
-    readonly property var seedSwatches: [
-        { hex: "#6750A4", argb: 0xFF6750A4, name: "Baseline purple" },
-        { hex: "#4285F4", argb: 0xFF4285F4, name: "Azure" },
-        { hex: "#4CAF50", argb: 0xFF4CAF50, name: "Fern" },
-        { hex: "#FF6D00", argb: 0xFFFF6D00, name: "Ember" },
-        { hex: "#E91E63", argb: 0xFFE91E63, name: "Rose" },
-        { hex: "#009688", argb: 0xFF009688, name: "Teal" },
-        { hex: "#795548", argb: 0xFF795548, name: "Clay" },
-        { hex: "#607D8B", argb: 0xFF607D8B, name: "Slate" }
-    ]
 
     // ------------------------------------------------------------------
     // page geometry
@@ -57,12 +42,6 @@ Item {
     readonly property real contentWidth: Math.max(280, Math.min(720, pageRoot.width - 2 * pageRoot.pageMargin))
     readonly property real cardWidth: pageRoot.contentWidth
     readonly property real cardContentWidth: pageRoot.cardWidth - 2 * Theme.spaceL
-
-    // Swatches shrink instead of clipping on a narrow window: eight of them plus the
-    // gaps must always fit inside the card's content width.
-    readonly property real swatchGap: Theme.spaceS
-    readonly property real swatchSize: Math.max(18, Math.min(32, (pageRoot.cardContentWidth - 7 * pageRoot.swatchGap) / 8))
-    readonly property real swatchRowHeight: pageRoot.swatchSize + 8
 
     // ------------------------------------------------------------------
     // UI scale hook (Stage 5 applies it to type/space/shape)
@@ -79,7 +58,6 @@ Item {
                                           * (pageRoot.scaleMax - pageRoot.scaleMin)
     readonly property string scaleLabel: Math.round(pageRoot.scaleValue * 100) + "%"
 
-    readonly property real appearanceCardHeight: 222
     readonly property real interfaceCardHeight: 184
     readonly property real aboutCardHeight: 126
 
@@ -99,109 +77,69 @@ Item {
             spacing: Theme.spaceL
 
             // ==========================================================
-            // 1. appearance - seed swatches + dark mode
+            // 1. appearance - seed picker + dark mode
             // ==========================================================
             M3Card {
                 id: appearanceCard
                 objectName: "settings-appearance"
                 width: pageRoot.cardWidth
-                height: pageRoot.appearanceCardHeight
                 variant: "elevated"
 
-                Text {
-                    x: 0
-                    y: 0
-                    text: "Appearance"
-                    color: Theme.onSurfaceHex
-                    font.pixelSize: Theme.typeTitleMedium
-                    font.bold: true
-                }
-
-                Text {
-                    x: 0
-                    y: 30
-                    text: "Seed colour"
-                    color: Theme.onSurfaceHex
-                    font.pixelSize: Theme.typeLabelLarge
-                    font.bold: true
-                }
-
-                Row {
-                    id: swatchRow
-                    x: 0
-                    y: 52
+                Column {
                     width: pageRoot.cardContentWidth
-                    height: pageRoot.swatchRowHeight
-                    spacing: pageRoot.swatchGap
+                    spacing: Theme.spaceM
 
-                    Repeater {
-                        model: pageRoot.seedSwatches
+                    Text {
+                        text: "Appearance"
+                        color: Theme.onSurfaceHex
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
 
-                        delegate: Rectangle {
-                            objectName: "seed-swatch-" + index
-                            width: pageRoot.swatchSize
-                            height: pageRoot.swatchSize
-                            radius: width / 2
-                            y: (pageRoot.swatchRowHeight - height) / 2
-                            color: modelData.hex
-                            // the ring marks the seed the bridge is currently using
-                            border.width: Theme.seedHex === modelData.hex ? 2 : 0
-                            border.color: Theme.primaryHex
+                    M3ColorPicker {
+                        objectName: "settings-seed-picker"
+                        width: parent.width
+                    }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: theme.setSeed(modelData.argb)
+                    Rectangle {
+                        width: parent.width
+                        height: 1
+                        color: Theme.outlineVariantHex
+                        opacity: 0.6
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: Theme.spaceL
+
+                        M3Switch {
+                            id: darkSwitch
+                            objectName: "setting-dark-mode"
+                            anchors.verticalCenter: parent.verticalCenter
+                            checked: Theme.dark
+                            onToggled: theme.setDark(checked)
+                        }
+
+                        Column {
+                            width: parent.width - darkSwitch.width - Theme.spaceL
+                            spacing: Theme.spaceXs
+
+                            Text {
+                                text: "Dark mode"
+                                color: Theme.onSurfaceHex
+                                font.pixelSize: Theme.typeLabelLarge
+                                font.bold: true
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: "Switches the whole scheme between the light and dark MD3E palette."
+                                color: Theme.onSurfaceVariantHex
+                                font.pixelSize: Theme.typeBodySmall
+                                wrapMode: Text.WordWrap
                             }
                         }
                     }
-                }
-
-                Text {
-                    x: 0
-                    y: 94
-                    width: pageRoot.cardContentWidth
-                    text: "Current seed " + Theme.seedHex
-                          + " - all 48 roles are regenerated from it, live."
-                    color: Theme.onSurfaceVariantHex
-                    font.pixelSize: Theme.typeBodySmall
-                    wrapMode: Text.WordWrap
-                }
-
-                Rectangle {
-                    x: 0
-                    y: 122
-                    width: pageRoot.cardContentWidth
-                    height: 1
-                    color: Theme.outlineVariantHex
-                    opacity: 0.6
-                }
-
-                Text {
-                    x: 0
-                    y: 134
-                    text: "Dark mode"
-                    color: Theme.onSurfaceHex
-                    font.pixelSize: Theme.typeLabelLarge
-                    font.bold: true
-                }
-
-                M3Switch {
-                    id: darkSwitch
-                    objectName: "setting-dark-mode"
-                    x: pageRoot.cardContentWidth - width
-                    y: 128
-                    checked: Theme.dark
-                    onToggled: theme.setDark(checked)
-                }
-
-                Text {
-                    x: 0
-                    y: 166
-                    width: pageRoot.cardContentWidth
-                    text: "Switches the whole scheme between the light and dark MD3E palette."
-                    color: Theme.onSurfaceVariantHex
-                    font.pixelSize: Theme.typeBodySmall
-                    wrapMode: Text.WordWrap
                 }
             }
 
@@ -307,8 +245,8 @@ Item {
                     x: 0
                     y: 106
                     width: pageRoot.cardContentWidth
-                    text: "Scales type, spacing and corner radii. Stage 5 applies the value - "
-                          + "for now the drag only moves the thumb and this label."
+                    text: "Scales type, spacing and corner radii. Applies to type/space/shape in "
+                          + "ThemeBridge - the drag only moves the thumb and this label."
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeBodySmall
                     wrapMode: Text.WordWrap
@@ -338,7 +276,7 @@ Item {
                     x: 0
                     y: 30
                     width: pageRoot.cardContentWidth
-                    text: "Selkie Hub 0.3.0  -  Stage 3a page skeletons"
+                    text: "Selkie Hub 0.5.0  -  Stage 5 polish"
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeBodySmall
                 }

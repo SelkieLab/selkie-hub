@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -57,6 +58,8 @@ import java.util.Map;
  *   <li>{@code --move=x,y} - scripted pointer move on the first frame.</li>
  *   <li>{@code --click=x,y [--click-after=<ms>]} - scripted click (press+release).</li>
  *   <li>{@code --click-item=<objectName> [--click-after=<ms>]} - scripted click on an item's centre;</li>
+ *   <li>{@code --keys=Tab@1000,Tab@1400,Enter@1800} - a timed key sequence (Tab, ShiftTab,
+ *       Enter, Escape, Space, Up/Down/Left/Right, or a single character).</li>
  *   <li>{@code --clicks=<objectName>@<ms>,...} - a timed click sequence, so an acceptance run can
  *       walk several pages of one process (e.g. {@code --clicks=nav-1@3000,nav-3@9000}).</li>
  *   <li>{@code --resize=WxH [--resize-after=<ms>]} - resize the OS window.</li>
@@ -112,6 +115,10 @@ public final class Main {
     private record ScriptedClick(String objectName, long atMs) {
     }
 
+    /** One entry of {@code --keys}: press {@code name} (Tab/ShiftTab/Enter/...) at {@code atMs}. */
+    private record ScriptedKey(String name, long atMs) {
+    }
+
     /** Everything the frame loop and the scripted runs need, parsed once from argv. */
     private record Options(String title, String qml, long quitAfterMs, long toggleAfterMs,
                            boolean startDark, int seedArgb, boolean traceMotion,
@@ -119,7 +126,7 @@ public final class Main {
                            boolean hasClick, float clickX, float clickY, long clickAfterMs,
                            boolean hasResize, int resizeW, int resizeH, long resizeAfterMs,
                            String clickItem, int devBackendPort, String dataRoot,
-                           List<ScriptedClick> clicks) {
+                           List<ScriptedClick> clicks, List<ScriptedKey> keys) {
     }
 
     public static void main(String[] args) {
@@ -254,6 +261,10 @@ public final class Main {
             System.out.println("[selkie] loaded QML entry '" + options.qml() + "' ("
                     + source.length() + " chars); root=" + view.root());
 
+            // Focus policy evidence: every focus change prints one [focus] line with the
+            // objectName of the item gaining focus (and the one losing it).
+            view.setFocusListener(Main::reportFocusChange);
+
             // Size the QML root to the framebuffer so narrow layouts can react to resizes.
             applyRootSize(view, fbWidth[0], fbHeight[0], pointerScale(window, fbWidth[0]));
 
@@ -308,6 +319,7 @@ public final class Main {
         boolean reportedToggle = false;
         boolean clicked = false;
         int nextScriptedClick = 0;
+        int nextScriptedKey = 0;
         boolean moved = false;
         boolean resized = false;
 
@@ -397,6 +409,18 @@ public final class Main {
                             + " at " + elapsedMs + " ms");
                 }
             }
+            if (nextScriptedKey < options.keys().size()
+                    && elapsedMs >= options.keys().get(nextScriptedKey).atMs()) {
+                ScriptedKey key = options.keys().get(nextScriptedKey);
+                nextScriptedKey++;
+                int code = keyCode(key.name());
+                String text = keyText(key.name());
+                boolean shift = keyShift(key.name());
+                input.injectKey(code, text, shift);
+                System.out.println("[input] scripted key #" + nextScriptedKey + " '" + key.name()
+                        + "' (code=" + code + ", text=" + (text == null ? "null" : "'" + text + "'")
+                        + ", shift=" + shift + ") at " + elapsedMs + " ms");
+            }
             if (options.hasClick() && !clicked && elapsedMs >= options.clickAfterMs()) {
                 clicked = true;
                 input.injectClick(options.clickX(), options.clickY());
@@ -423,6 +447,8 @@ public final class Main {
             if (options.traceMotion()) {
                 traceMotion(view, motion, elapsedMs);
             }
+            // Overlays/pages animate whether or not --motion-trace is on; the trace only
+            // decides whether the per-frame numbers are printed.
             if (toggled && !reportedToggle) {
                 reportedToggle = true;
                 view.renderFrame(backend);
@@ -535,6 +561,14 @@ public final class Main {
                     .append('=').append(String.format(Locale.ROOT, "%.5f", channel.value.peek()));
             any = true;
         }
+        for (OverlayChannel overlay : motion.allOverlays()) {
+            if (!overlay.isAnimating()) continue;
+            line.append(" overlay:").append(overlay.name())
+                    .append(" scale=").append(String.format(Locale.ROOT, "%.3f", overlay.scale.peek()))
+                    .append(" opacity=").append(String.format(Locale.ROOT, "%.3f", overlay.opacity.peek()))
+                    .append(" visible=").append(overlay.visible.peek());
+            any = true;
+        }
         if (!any) return;
         // The QML-side proof: the marker's resolved x comes from a binding on ch.value,
         // so it lags the channel by at most one frame and shows what was actually drawn.
@@ -560,6 +594,21 @@ public final class Main {
         float logicalScale = scale <= 0f ? 1f : scale;
         root.width.set((double) (framebufferWidth / logicalScale));
         root.height.set((double) (framebufferHeight / logicalScale));
+    }
+
+    /**
+     * One line per focus change - the acceptance log for the Tab traversal.
+     * qml4j calls {@code onFocusChanged(newFocus, oldFocus)}: the NEW focus is the first arg.
+     */
+    private static void reportFocusChange(Item newFocus, Item oldFocus) {
+        System.out.println("[focus] " + focusName(oldFocus) + " -> " + focusName(newFocus));
+    }
+
+    private static String focusName(Item item) {
+        if (item == null) return "<none>";
+        String name = item.objectName.peek();
+        if (name == null || name.isBlank()) return "<" + item.getClass().getSimpleName() + ">";
+        return name;
     }
 
     /** Absolute centre of an item in logical units, by summing the parent chain. */
@@ -751,7 +800,8 @@ public final class Main {
                 click != null, click != null ? click[0] : 0f, click != null ? click[1] : 0f, clickAfterMs,
                 resize != null, resize != null ? resize[0] : 0, resize != null ? resize[1] : 0, resizeAfterMs,
                 flag(args, "--click-item=", null), devBackendPort, dataRoot,
-                parseClicks(flag(args, "--clicks=", "")));
+                parseClicks(flag(args, "--clicks=", "")),
+                parseKeys(flag(args, "--keys=", "")));
     }
 
     /**
@@ -759,6 +809,60 @@ public final class Main {
      * {@code @ms} means "as early as possible"; a malformed entry is skipped rather than
      * aborting the run.
      */
+    /**
+     * Parses {@code --keys=Tab@1000,Tab@1400,Enter@1800} into an ordered key sequence.
+     * A missing {@code @ms} means "as early as possible"; malformed entries are skipped.
+     */
+    private static List<ScriptedKey> parseKeys(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        List<ScriptedKey> keys = new ArrayList<>();
+        for (String chunk : value.split(",")) {
+            String entry = chunk.trim();
+            if (entry.isEmpty()) continue;
+            String name = entry;
+            long atMs = 0L;
+            int at = entry.lastIndexOf('@');
+            if (at > 0) {
+                name = entry.substring(0, at).trim();
+                atMs = parseLong(entry.substring(at + 1), 0L);
+            }
+            if (!name.isEmpty()) keys.add(new ScriptedKey(name, atMs));
+        }
+        keys.sort(Comparator.comparingLong(ScriptedKey::atMs));
+        return keys;
+    }
+
+    /** {@code --keys} name -&gt; qml4j key code (0 = text payload only). */
+    private static int keyCode(String name) {
+        return switch (name.toLowerCase(Locale.ROOT)) {
+            case "tab" -> QmlView.KEY_TAB;
+            case "shifttab", "shift+tab", "backtab" -> QmlView.KEY_BACKTAB;
+            case "enter", "return" -> QmlView.KEY_ENTER;
+            case "escape", "esc" -> QmlView.KEY_ESCAPE;
+            case "backspace" -> QmlView.KEY_BACKSPACE;
+            case "up" -> QmlView.KEY_UP;
+            case "down" -> QmlView.KEY_DOWN;
+            case "left" -> QmlView.KEY_LEFT;
+            case "right" -> QmlView.KEY_RIGHT;
+            case "home" -> QmlView.KEY_HOME;
+            case "end" -> QmlView.KEY_END;
+            default -> 0;
+        };
+    }
+
+    /** {@code --keys} name -&gt; text payload (Space and single characters). */
+    private static String keyText(String name) {
+        if (name.equalsIgnoreCase("space")) return " ";
+        if (name.length() == 1) return name;
+        return null;
+    }
+
+    /** Shift+Tab is its own key code; real Shift+Tab also reports shift = true. */
+    private static boolean keyShift(String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.equals("shifttab") || lower.equals("shift+tab") || lower.equals("backtab");
+    }
+
     private static List<ScriptedClick> parseClicks(String value) {
         if (value == null || value.isBlank()) return List.of();
         List<ScriptedClick> clicks = new ArrayList<>();

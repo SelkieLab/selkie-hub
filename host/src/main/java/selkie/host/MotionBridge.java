@@ -41,6 +41,11 @@ public final class MotionBridge extends QObject {
 
     private final Map<String, MotionTokens.SpringSpec> specs;
 
+    /** Named overlay timelines (one per overlay name, so a toast re-shows the same channel). */
+    private final Map<String, OverlayChannel> overlays = new LinkedHashMap<>();
+    /** Page-transition channels, in creation order. */
+    private final List<PageChannel> pages = new ArrayList<>();
+
     /** Every channel ever handed to QML, in creation order (identity semantics). */
     private final List<SpringChannel> channels = new ArrayList<>();
     private final Set<SpringChannel> owned = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -93,12 +98,91 @@ public final class MotionBridge extends QObject {
         channel.jumpTo(target);
     }
 
+    // ------------------------------------------------------------------
+    // Overlay enter/exit timelines (toast, sheet, popover)
+    // ------------------------------------------------------------------
+
+    /**
+     * QML entry point: {@code motion.overlay("toast")}. One instance per name - calling it
+     * twice with the same name hands back the same channel, so a toast can be re-shown.
+     */
+    public OverlayChannel overlay(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("overlay name must not be blank");
+        }
+        return overlays.computeIfAbsent(name, OverlayChannel::new);
+    }
+
+    /** QML entry point: start the enter timeline (200 ms scale + 150 ms fade, visible at once). */
+    public void showOverlay(OverlayChannel channel) {
+        requireOverlay(channel);
+        channel.show();
+    }
+
+    /** QML entry point: start the exit timeline (150 ms scale + fade, then visible = false). */
+    public void hideOverlay(OverlayChannel channel) {
+        requireOverlay(channel);
+        channel.hide();
+    }
+
+    /** True while any overlay is in the middle of its enter/exit timeline. */
+    public boolean overlayAnimating() {
+        for (OverlayChannel channel : overlays.values()) {
+            if (channel.isAnimating()) return true;
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------
+    // Page transitions
+    // ------------------------------------------------------------------
+
+    /**
+     * QML entry point: {@code motion.pageChannel()}. A fresh channel per call, starting at
+     * 0.0; {@link #pageIn(PageChannel)} springs it to 1.0 with defaultSpatial physics.
+     */
+    public PageChannel pageChannel() {
+        PageChannel channel = new PageChannel(channel("defaultSpatial"));
+        pages.add(channel);
+        return channel;
+    }
+
+    /** Animate {@code progress} 0 -&gt; 1 (new page arrives). */
+    public void pageIn(PageChannel channel) {
+        requirePage(channel);
+        channel.spring.retarget(1.0);
+    }
+
+    /** Animate {@code progress} 1 -&gt; 0 (current page leaves). */
+    public void pageOut(PageChannel channel) {
+        requirePage(channel);
+        channel.spring.retarget(0.0);
+    }
+
+    /** Place {@code progress} immediately (first paint, no animation). */
+    public void pageJump(PageChannel channel, double progress) {
+        requirePage(channel);
+        channel.spring.jumpTo(progress);
+    }
+
+    private void requireOverlay(OverlayChannel channel) {
+        if (channel == null || overlays.get(channel.name()) != channel) {
+            throw new IllegalArgumentException("Overlay was not created by this motion bridge: " + channel);
+        }
+    }
+
+    private void requirePage(PageChannel channel) {
+        if (channel == null || !pages.contains(channel)) {
+            throw new IllegalArgumentException("Page channel was not created by this motion bridge: " + channel);
+        }
+    }
+
     /** True while any channel is still moving (handy for frame pacing / diagnostics). */
     public boolean isAnimating() {
         for (SpringChannel channel : snapshot()) {
             if (channel.running()) return true;
         }
-        return false;
+        return overlayAnimating();
     }
 
     /** Advances every running channel; called once per frame from the render loop. */
@@ -110,6 +194,10 @@ public final class MotionBridge extends QObject {
         for (SpringChannel channel : snapshot()) {
             if (channel.running()) channel.advance(seconds);
         }
+        double deltaMs = deltaNanos / 1_000_000.0;
+        for (OverlayChannel channel : overlays.values()) {
+            if (channel.isAnimating()) channel.tick(deltaMs);
+        }
     }
 
     /** Every channel handed out so far, in creation order (used by --motion-trace). */
@@ -120,6 +208,21 @@ public final class MotionBridge extends QObject {
     /** Number of channels QML has created - a cheap leak/duplication check. */
     public int channelCount() {
         return channels.size();
+    }
+
+    /** Number of named overlays QML has created. */
+    public int overlayCount() {
+        return overlays.size();
+    }
+
+    /** Every named overlay, in creation order (diagnostics / --motion-trace). */
+    public Collection<OverlayChannel> allOverlays() {
+        return new ArrayList<>(overlays.values());
+    }
+
+    /** Every page channel handed out so far (diagnostics). */
+    public Collection<PageChannel> allPages() {
+        return new ArrayList<>(pages);
     }
 
     private List<SpringChannel> snapshot() {

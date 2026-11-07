@@ -84,6 +84,17 @@ final class InputDispatcher {
         queue.add(new Event(Kind.RELEASE, x, y, 0, 0, MouseEvent.LEFT_BUTTON, 0, null, false, false, now));
     }
 
+    /**
+     * Scripted keyboard: one press + release. {@code key} is a {@code QmlView.KEY_*} constant
+     * (0 for "plain text"), {@code text} is the character payload for text entry.
+     */
+    void injectKey(int key, String text, boolean shift) {
+        injectedEvents += 2;
+        long now = System.nanoTime();
+        queue.add(new Event(Kind.KEY, cursorX, cursorY, 0, 0, 0, key, text, true, shift, now));
+        queue.add(new Event(Kind.KEY, cursorX, cursorY, 0, 0, 0, key, null, false, shift, now));
+    }
+
     /** Scripted pointer: hover only (used to prove moves do not trigger clicks). */
     void injectMove(float x, float y) {
         cursorX = x;
@@ -111,7 +122,13 @@ final class InputDispatcher {
             float y = event.y() / scale;
             switch (event.kind()) {
                 case MOVE -> view.dispatchPointerMove(x, y, event.timeNanos());
-                case PRESS -> view.dispatchPointerDown(x, y, event.button(), event.timeNanos());
+                case PRESS -> {
+                    // Focus policy (Stage 5a): a pointer press drops the previous keyboard
+                    // focus, and the press itself never ASSIGNS focus. A QML item that wants
+                    // focus on click does so explicitly (e.g. TextInput's own handler).
+                    view.clearFocus();
+                    view.dispatchPointerDown(x, y, event.button(), event.timeNanos());
+                }
                 case RELEASE -> view.dispatchPointerUp(x, y, event.button(), event.timeNanos());
                 case WHEEL -> view.dispatchWheel(x, y, event.dx(), event.dy());
                 case KEY -> view.dispatchKey(event.key(), event.text(), event.down(), event.shift());

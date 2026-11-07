@@ -37,6 +37,20 @@ Item {
 
     signal tabSelected(int index)
 
+    // Engine focus (FocusManager): Tab-reachable. Left/Right move the selection while
+    // focused (Keys handler), a mouse click still picks a tab directly.
+    activeFocusOnTab: true
+    Keys.onLeftPressed: root.selectIndex(root.currentIndex - 1)
+    Keys.onRightPressed: root.selectIndex(root.currentIndex + 1)
+
+    function selectIndex(index) {
+        if (root.count <= 0) return
+        var next = Math.max(0, Math.min(root.count - 1, index))
+        if (next === root.currentIndex) return
+        root.currentIndex = next
+        root.tabSelected(next)
+    }
+
     property int count: root.labels === null ? 0 : root.labels.length
     property real tabWidth: root.count > 0 ? root.width / root.count : root.width
 
@@ -83,5 +97,17 @@ Item {
         x: root.spring.value * root.tabWidth
         radius: Theme.shapeFull
         color: Theme.primaryHex
+    }
+
+    // Focus ring around the whole tab strip, bound to the engine's activeFocus.
+    Rectangle {
+        objectName: "focus-ring"
+        anchors.fill: parent
+        anchors.margins: -2
+        radius: Theme.shapeS
+        color: "transparent"
+        border.width: 2
+        border.color: Theme.primaryHex
+        visible: root.activeFocus
     }
 }

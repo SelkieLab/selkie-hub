@@ -25,6 +25,10 @@ Item {
     property string text: ""
     property string variant: "filled"
 
+    // Engine focus (FocusManager): Tab-reachable. A mouse click does NOT steal focus -
+    // the ring follows activeFocus only.
+    activeFocusOnTab: true
+
     signal clicked()
 
     property real horizontalPadding: root.variant === "text" ? Theme.spaceM : Theme.spaceXl
@@ -84,5 +88,23 @@ Item {
         enabled: root.enabled
         hoverEnabled: root.enabled
         onClicked: root.clicked()
+    }
+
+    // Keyboard activation: a button you can Tab to must be pressable without a mouse.
+    // Enter and Space both activate, matching MD3E / desktop convention.
+    Keys.onReturnPressed: if (root.enabled) root.clicked()
+    Keys.onSpacePressed: if (root.enabled) root.clicked()
+
+    // Focus ring: a 2dp primary outline just outside the pill, shown only while the
+    // engine reports activeFocus (Tab / Shift+Tab), never as a side effect of a click.
+    Rectangle {
+        objectName: "focus-ring"
+        anchors.fill: parent
+        anchors.margins: -3
+        radius: Theme.shapeFull
+        color: "transparent"
+        border.width: 2
+        border.color: Theme.primaryHex
+        visible: root.activeFocus
     }
 }
