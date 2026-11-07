@@ -1,0 +1,11 @@
+{
+  "id": "persona-injector",
+  "name": "Persona Injector",
+  "version": "1.2.0",
+  "publisher": "SelkieLab",
+  "description": "Prepends the active persona card to every turn.",
+  "official": true,
+  "provides": ["prompt", "context"],
+  "permissions": ["fs:read"],
+  "token_policy": "schema-only"
+}

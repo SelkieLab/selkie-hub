@@ -5,8 +5,8 @@ bin/
 .gradle/
 *.class
 
-# Local data
-data/
+# Local data (the shipped fixtures under data/ ARE tracked; only machine-local state is not)
+data/local/
 logs/
 
 # IDE

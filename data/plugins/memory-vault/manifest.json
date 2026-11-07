@@ -1,0 +1,11 @@
+{
+  "id": "memory-vault",
+  "name": "Memory Vault",
+  "version": "2.0.1",
+  "publisher": "SelkieLab",
+  "description": "Stores and recalls memory cards from the local vault.",
+  "official": true,
+  "provides": ["tool", "prompt"],
+  "permissions": ["fs:read", "fs:write"],
+  "token_policy": "full-body"
+}

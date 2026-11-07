@@ -1,0 +1,11 @@
+{
+  "id": "theme-lab",
+  "name": "Theme Lab",
+  "version": "0.4.2",
+  "publisher": "Paper Kite Studio",
+  "description": "Generates extra MD3E palettes from a seed colour.",
+  "official": false,
+  "provides": ["theme", "prompt"],
+  "permissions": ["fs:read"],
+  "token_policy": "schema-only"
+}

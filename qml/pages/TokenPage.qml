@@ -2,35 +2,42 @@ import QtQuick 2.15
 import ".."
 import "../components"
 
-// TokenPage - Stage 3b context budget breakdown.
+// TokenPage - Stage 4: the context budget is live host data.
 //
-// WHAT THIS PAGE IS
-//   Where the context window went: one summary card (total used vs window, a thick
-//   segmented usage bar and its legend), four breakdown rows (persona injection /
-//   memory recall / tool schema / conversation history) and a note card that says
-//   plainly that the numbers are a Stage 4 bridge placeholder.
+// DATA SOURCE
+//   The context object "tokens" (selkie.host.TokenBridge, registered before view.load)
+//   publishes the six numbers data/tokens.json holds: used / total and the four-way
+//   breakdown persona / recall / tools / history. Nothing on this page is a literal any
+//   more - every label, percentage and bar width is a binding on those properties, so a
+//   file edit shows up within a frame or two (the bridge re-reads on mtime change).
+//
+// NOTHING IS HARD-CODED, SO NOTHING CAN DRIFT
+//   The summary number, the four row numbers, every percentage and every bar width are all
+//   derived from the same two properties (the part and the window), which is why the picture
+//   cannot disagree with the numbers printed next to it.
 //
 // EVERY BAR IS A RECTANGLE
-//   qml4j has no Controls layer, no ProgressBar and no Grid positioner, so the
-//   usage bar is a clipped, rounded Rectangle track with four absolutely
-//   positioned segment Rectangles inside it, and each row bar is a track plus a
-//   proportional fill. Both derive their widths from the same token properties the
-//   labels print, so the bars and the numbers cannot drift apart.
+//   qml4j has no Controls layer, no ProgressBar and no Grid positioner, so the usage bar is a
+//   clipped, rounded Rectangle track with five absolutely positioned segment Rectangles inside
+//   it, and each row bar is a track plus a proportional fill.
 //
 // PROPORTIONS ARE SHARE OF THE WINDOW
-//   Every row bar is drawn against the full 200,000 token window (not against the
-//   used total), so the four bars are directly comparable and the free space is
-//   the visually obvious remainder - the same scale as the summary bar above.
+//   Every bar is drawn against the full window (tokens.total), not against the used total, so
+//   the four categories are directly comparable and the free space is the obvious remainder.
 //
 // COLOUR ROLES
-//   Persona = primary, Memory recall = secondary, Tool schema = tertiary,
-//   Conversation history = error. The error role is used as a fourth distinct hue
-//   for the "expensive fixed cost" category, and every bar sits on
-//   surfaceContainerHighest so the hue stays legible in both schemes.
+//   Persona = primary, Memory recall = secondary, Tool schema = tertiary, Conversation
+//   history = error. The error role is the fourth distinct hue for the "expensive fixed
+//   cost" category; every bar sits on surfaceContainerHighest so it stays legible in both
+//   schemes.
+//
+// DEGRADED MODE
+//   When status.preflightOk is false the note card says the backend is unreachable and that
+//   the numbers are the last manifest sample, in Theme.error.
 //
 // PAGE CONTRACT (the shell owns geometry)
-//   Root is Item { id: pageRoot } with no x/y/width/height; the body is a
-//   Flickable so the three stacked cards can exceed a short window.
+//   Root is Item { id: pageRoot } with no x/y/width/height; the body is a Flickable so the
+//   three stacked cards can exceed a short window.
 //
 // INTERACTIVE OBJECTNAMES: token-summary, token-bar, token-row-1 ... token-row-4
 
@@ -38,16 +45,67 @@ Item {
     id: pageRoot
 
     // ------------------------------------------------------------------
-    // placeholder budget - replaced by TokenBridge in Stage 4
+    // live budget - selkie.host.TokenBridge as the context object "tokens"
     // ------------------------------------------------------------------
-    readonly property real windowTokens: 200000
-    readonly property real personaTokens: 24600
-    readonly property real memoryTokens: 18900
-    readonly property real toolSchemaTokens: 41200
-    readonly property real historyTokens: 33700
-    readonly property real usedTokens: pageRoot.personaTokens + pageRoot.memoryTokens
-                                       + pageRoot.toolSchemaTokens + pageRoot.historyTokens
-    readonly property real freeTokens: pageRoot.windowTokens - pageRoot.usedTokens
+    readonly property real windowTokens: tokens.total
+    // Dividing by a zero window would produce NaN widths; fall back to 1 (all shares 0).
+    readonly property real windowSafe: pageRoot.windowTokens <= 0 ? 1 : pageRoot.windowTokens
+
+    readonly property real personaTokens: tokens.persona
+    readonly property real recallTokens: tokens.recall
+    readonly property real toolsTokens: tokens.tools
+    readonly property real historyTokens: tokens.history
+
+    readonly property real usedTokens: tokens.used
+    readonly property real freeTokens: Math.max(0, pageRoot.windowTokens - pageRoot.usedTokens)
+
+    readonly property string dataSource: tokens.source
+    // Degraded state: a FAILED poll, not the pre-poll default. status.preflightOk starts
+    // false (and pollCount 0) while the first request is still in flight, so gating on
+    // pollCount keeps a healthy launch from flashing an error banner for two frames.
+    readonly property bool backendDown: status.preflightOk === false && status.pollCount > 0
+
+    // ------------------------------------------------------------------
+    // formatting helpers
+    //   Values are passed IN as arguments: the binding that calls the function records the
+    //   dependency on the bridge property, the function body stays dependency-free.
+    // ------------------------------------------------------------------
+    function groupThousands(value) {
+        var n = Math.round(value);
+        var text = "" + n;
+        var out = "";
+        while (text.length > 3) {
+            out = "," + text.substring(text.length - 3) + out;
+            text = text.substring(0, text.length - 3);
+        }
+        return text + out;
+    }
+
+    function share(part, whole) {
+        if (whole <= 0) {
+            return "0%";
+        }
+        return (Math.round(part / whole * 1000) / 10) + "%";
+    }
+
+    // ------------------------------------------------------------------
+    // display strings, one per number the page prints
+    // ------------------------------------------------------------------
+    readonly property string usedLabel: pageRoot.groupThousands(pageRoot.usedTokens)
+    readonly property string totalLabel: pageRoot.groupThousands(pageRoot.windowTokens)
+    readonly property string usedShareLabel: pageRoot.share(pageRoot.usedTokens, pageRoot.windowTokens)
+    readonly property string freeLabel: pageRoot.groupThousands(pageRoot.freeTokens)
+    readonly property string freeShareLabel: pageRoot.share(pageRoot.freeTokens, pageRoot.windowTokens)
+
+    readonly property string personaLabel: pageRoot.groupThousands(pageRoot.personaTokens)
+    readonly property string recallLabel: pageRoot.groupThousands(pageRoot.recallTokens)
+    readonly property string toolsLabel: pageRoot.groupThousands(pageRoot.toolsTokens)
+    readonly property string historyLabel: pageRoot.groupThousands(pageRoot.historyTokens)
+
+    readonly property string personaShareLabel: pageRoot.share(pageRoot.personaTokens, pageRoot.windowTokens)
+    readonly property string recallShareLabel: pageRoot.share(pageRoot.recallTokens, pageRoot.windowTokens)
+    readonly property string toolsShareLabel: pageRoot.share(pageRoot.toolsTokens, pageRoot.windowTokens)
+    readonly property string historyShareLabel: pageRoot.share(pageRoot.historyTokens, pageRoot.windowTokens)
 
     // ------------------------------------------------------------------
     // page geometry
@@ -59,7 +117,7 @@ Item {
 
     readonly property real summaryCardHeight: 260
     readonly property real breakdownCardHeight: 300
-    readonly property real noteCardHeight: 148
+    readonly property real noteCardHeight: 176
 
     Flickable {
         id: scroller
@@ -100,7 +158,7 @@ Item {
                     id: usedValue
                     x: 0
                     y: 30
-                    text: "118,400"
+                    text: pageRoot.usedLabel
                     color: Theme.onSurfaceHex
                     font.pixelSize: Theme.typeTitleLarge
                     font.bold: true
@@ -109,22 +167,24 @@ Item {
                 Text {
                     x: usedValue.implicitWidth + Theme.spaceS
                     y: 39
-                    text: "of 200,000 tokens in the window"
+                    width: pageRoot.cardContentWidth - usedValue.implicitWidth - Theme.spaceS
+                    text: "of " + pageRoot.totalLabel + " tokens in the window"
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeBodyMedium
+                    elide: Text.ElideRight
                 }
 
                 Text {
                     id: usedPercent
                     x: pageRoot.cardContentWidth - usedPercent.implicitWidth
                     y: 34
-                    text: "59.2% used"
+                    text: pageRoot.usedShareLabel + " used"
                     color: Theme.primaryHex
                     font.pixelSize: Theme.typeTitleSmall
                     font.bold: true
                 }
 
-                // thick usage bar: one clipped track, four segments, free space last
+                // thick usage bar: one clipped track, five segments, free space last
                 Rectangle {
                     id: usageBar
                     objectName: "token-bar"
@@ -139,39 +199,41 @@ Item {
                     Rectangle {
                         x: 0
                         y: 0
-                        width: usageBar.width * pageRoot.personaTokens / pageRoot.windowTokens
+                        width: usageBar.width * pageRoot.personaTokens / pageRoot.windowSafe
                         height: usageBar.height
                         color: Theme.primaryHex
                     }
 
                     Rectangle {
-                        x: usageBar.width * pageRoot.personaTokens / pageRoot.windowTokens
+                        x: usageBar.width * pageRoot.personaTokens / pageRoot.windowSafe
                         y: 0
-                        width: usageBar.width * pageRoot.memoryTokens / pageRoot.windowTokens
+                        width: usageBar.width * pageRoot.recallTokens / pageRoot.windowSafe
                         height: usageBar.height
                         color: Theme.secondaryHex
                     }
 
                     Rectangle {
-                        x: usageBar.width * (pageRoot.personaTokens + pageRoot.memoryTokens) / pageRoot.windowTokens
+                        x: usageBar.width * (pageRoot.personaTokens + pageRoot.recallTokens) / pageRoot.windowSafe
                         y: 0
-                        width: usageBar.width * pageRoot.toolSchemaTokens / pageRoot.windowTokens
+                        width: usageBar.width * pageRoot.toolsTokens / pageRoot.windowSafe
                         height: usageBar.height
                         color: Theme.tertiaryHex
                     }
 
                     Rectangle {
-                        x: usageBar.width * (pageRoot.personaTokens + pageRoot.memoryTokens + pageRoot.toolSchemaTokens) / pageRoot.windowTokens
+                        x: usageBar.width * (pageRoot.personaTokens + pageRoot.recallTokens
+                                             + pageRoot.toolsTokens) / pageRoot.windowSafe
                         y: 0
-                        width: usageBar.width * pageRoot.historyTokens / pageRoot.windowTokens
+                        width: usageBar.width * pageRoot.historyTokens / pageRoot.windowSafe
                         height: usageBar.height
                         color: Theme.errorHex
                     }
 
                     Rectangle {
-                        x: usageBar.width * (pageRoot.personaTokens + pageRoot.memoryTokens + pageRoot.toolSchemaTokens + pageRoot.historyTokens) / pageRoot.windowTokens
+                        x: usageBar.width * (pageRoot.personaTokens + pageRoot.recallTokens
+                                             + pageRoot.toolsTokens + pageRoot.historyTokens) / pageRoot.windowSafe
                         y: 0
-                        width: usageBar.width * pageRoot.freeTokens / pageRoot.windowTokens
+                        width: usageBar.width * pageRoot.freeTokens / pageRoot.windowSafe
                         height: usageBar.height
                         color: Theme.surfaceContainerHighestHex
                     }
@@ -194,7 +256,7 @@ Item {
                             y: 4
                             width: 8
                             height: 8
-                            radius: 4
+                            radius: Math.min(Theme.shapeFull, width / 2)
                             color: Theme.primaryHex
                         }
 
@@ -210,7 +272,7 @@ Item {
                             id: legend1Value
                             x: parent.width - legend1Value.implicitWidth
                             y: 0
-                            text: "24,600  ·  12.3%"
+                            text: pageRoot.personaLabel + "  ·  " + pageRoot.personaShareLabel
                             color: Theme.onSurfaceHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -225,7 +287,7 @@ Item {
                             y: 4
                             width: 8
                             height: 8
-                            radius: 4
+                            radius: Math.min(Theme.shapeFull, width / 2)
                             color: Theme.secondaryHex
                         }
 
@@ -241,7 +303,7 @@ Item {
                             id: legend2Value
                             x: parent.width - legend2Value.implicitWidth
                             y: 0
-                            text: "18,900  ·  9.5%"
+                            text: pageRoot.recallLabel + "  ·  " + pageRoot.recallShareLabel
                             color: Theme.onSurfaceHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -256,7 +318,7 @@ Item {
                             y: 4
                             width: 8
                             height: 8
-                            radius: 4
+                            radius: Math.min(Theme.shapeFull, width / 2)
                             color: Theme.tertiaryHex
                         }
 
@@ -272,7 +334,7 @@ Item {
                             id: legend3Value
                             x: parent.width - legend3Value.implicitWidth
                             y: 0
-                            text: "41,200  ·  20.6%"
+                            text: pageRoot.toolsLabel + "  ·  " + pageRoot.toolsShareLabel
                             color: Theme.onSurfaceHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -287,7 +349,7 @@ Item {
                             y: 4
                             width: 8
                             height: 8
-                            radius: 4
+                            radius: Math.min(Theme.shapeFull, width / 2)
                             color: Theme.errorHex
                         }
 
@@ -303,7 +365,7 @@ Item {
                             id: legend4Value
                             x: parent.width - legend4Value.implicitWidth
                             y: 0
-                            text: "33,700  ·  16.9%"
+                            text: pageRoot.historyLabel + "  ·  " + pageRoot.historyShareLabel
                             color: Theme.onSurfaceHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -318,7 +380,7 @@ Item {
                             y: 4
                             width: 8
                             height: 8
-                            radius: 4
+                            radius: Math.min(Theme.shapeFull, width / 2)
                             color: Theme.outlineHex
                         }
 
@@ -334,7 +396,7 @@ Item {
                             id: legend5Value
                             x: parent.width - legend5Value.implicitWidth
                             y: 0
-                            text: "81,600  ·  40.8%"
+                            text: pageRoot.freeLabel + "  ·  " + pageRoot.freeShareLabel
                             color: Theme.onSurfaceHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -364,8 +426,9 @@ Item {
                     x: 0
                     y: 26
                     width: parent.width
-                    text: "Each bar is drawn against the full 200,000 token window, not against the"
-                          + " 118,400 already used."
+                    text: "Each bar is drawn against the full " + pageRoot.totalLabel
+                          + " token window, not against the " + pageRoot.usedLabel
+                          + " already used."
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeBodySmall
                     wrapMode: Text.WordWrap
@@ -396,7 +459,7 @@ Item {
                             id: row1Value
                             x: parent.width - 68 - row1Value.implicitWidth
                             y: 1
-                            text: "24,600"
+                            text: pageRoot.personaLabel
                             color: Theme.onSurfaceVariantHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -405,7 +468,7 @@ Item {
                             id: row1Percent
                             x: parent.width - row1Percent.implicitWidth
                             y: 0
-                            text: "12.3%"
+                            text: pageRoot.personaShareLabel
                             color: Theme.primaryHex
                             font.pixelSize: Theme.typeLabelLarge
                             font.bold: true
@@ -423,7 +486,7 @@ Item {
                         Rectangle {
                             x: 0
                             y: 20
-                            width: parent.width * pageRoot.personaTokens / pageRoot.windowTokens
+                            width: parent.width * pageRoot.personaTokens / pageRoot.windowSafe
                             height: 8
                             radius: Math.min(Theme.shapeFull, height / 2)
                             color: Theme.primaryHex
@@ -448,7 +511,7 @@ Item {
                             id: row2Value
                             x: parent.width - 68 - row2Value.implicitWidth
                             y: 1
-                            text: "18,900"
+                            text: pageRoot.recallLabel
                             color: Theme.onSurfaceVariantHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -457,7 +520,7 @@ Item {
                             id: row2Percent
                             x: parent.width - row2Percent.implicitWidth
                             y: 0
-                            text: "9.5%"
+                            text: pageRoot.recallShareLabel
                             color: Theme.secondaryHex
                             font.pixelSize: Theme.typeLabelLarge
                             font.bold: true
@@ -475,7 +538,7 @@ Item {
                         Rectangle {
                             x: 0
                             y: 20
-                            width: parent.width * pageRoot.memoryTokens / pageRoot.windowTokens
+                            width: parent.width * pageRoot.recallTokens / pageRoot.windowSafe
                             height: 8
                             radius: Math.min(Theme.shapeFull, height / 2)
                             color: Theme.secondaryHex
@@ -500,7 +563,7 @@ Item {
                             id: row3Value
                             x: parent.width - 68 - row3Value.implicitWidth
                             y: 1
-                            text: "41,200"
+                            text: pageRoot.toolsLabel
                             color: Theme.onSurfaceVariantHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -509,7 +572,7 @@ Item {
                             id: row3Percent
                             x: parent.width - row3Percent.implicitWidth
                             y: 0
-                            text: "20.6%"
+                            text: pageRoot.toolsShareLabel
                             color: Theme.tertiaryHex
                             font.pixelSize: Theme.typeLabelLarge
                             font.bold: true
@@ -527,7 +590,7 @@ Item {
                         Rectangle {
                             x: 0
                             y: 20
-                            width: parent.width * pageRoot.toolSchemaTokens / pageRoot.windowTokens
+                            width: parent.width * pageRoot.toolsTokens / pageRoot.windowSafe
                             height: 8
                             radius: Math.min(Theme.shapeFull, height / 2)
                             color: Theme.tertiaryHex
@@ -552,7 +615,7 @@ Item {
                             id: row4Value
                             x: parent.width - 68 - row4Value.implicitWidth
                             y: 1
-                            text: "33,700"
+                            text: pageRoot.historyLabel
                             color: Theme.onSurfaceVariantHex
                             font.pixelSize: Theme.typeBodySmall
                         }
@@ -561,7 +624,7 @@ Item {
                             id: row4Percent
                             x: parent.width - row4Percent.implicitWidth
                             y: 0
-                            text: "16.9%"
+                            text: pageRoot.historyShareLabel
                             color: Theme.errorHex
                             font.pixelSize: Theme.typeLabelLarge
                             font.bold: true
@@ -579,7 +642,7 @@ Item {
                         Rectangle {
                             x: 0
                             y: 20
-                            width: parent.width * pageRoot.historyTokens / pageRoot.windowTokens
+                            width: parent.width * pageRoot.historyTokens / pageRoot.windowSafe
                             height: 8
                             radius: Math.min(Theme.shapeFull, height / 2)
                             color: Theme.errorHex
@@ -589,7 +652,7 @@ Item {
             }
 
             // ==========================================================
-            // 3. note card: say out loud that this is a placeholder
+            // 3. note card: name the source, and the preflight verdict
             // ==========================================================
             M3Card {
                 id: noteCard
@@ -598,32 +661,36 @@ Item {
                 variant: "elevated"
 
                 Rectangle {
-                    id: placeholderChip
+                    id: sourceChip
                     x: 0
                     y: 0
-                    width: placeholderLabel.implicitWidth + 2 * Theme.spaceM
+                    width: sourceChipLabel.implicitWidth + 2 * Theme.spaceM
                     height: 22
                     radius: Math.min(Theme.shapeFull, height / 2)
-                    color: Theme.tertiaryContainerHex
+                    color: pageRoot.backendDown ? Theme.errorContainerHex : Theme.tertiaryContainerHex
 
                     Text {
-                        id: placeholderLabel
+                        id: sourceChipLabel
                         x: Theme.spaceM
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "STAGE 4 PLACEHOLDER"
-                        color: Theme.onTertiaryContainerHex
+                        text: pageRoot.backendDown ? "MANIFEST DATA ONLY" : "LIVE BRIDGE DATA"
+                        color: pageRoot.backendDown ? Theme.onErrorContainerHex
+                                                    : Theme.onTertiaryContainerHex
                         font.pixelSize: Theme.typeLabelSmall
+                        font.bold: true
                     }
                 }
 
                 Text {
                     x: 0
                     y: 36
-                    width: parent.width
-                    height: 62
-                    text: "These four numbers are a fixed sample, not a live measurement. TokenBridge"
-                          + " streams real counts from the model's context window in Stage 4; the bars"
-                          + " and rows above are already bound to the properties it will write."
+                    width: pageRoot.cardContentWidth
+                    text: tokens.source === "unavailable"
+                          ? "data/tokens.json could not be read, so every number above is zero"
+                            + " until the file exists."
+                          : "These counts come from " + pageRoot.dataSource + ". The host re-reads the"
+                            + " file whenever its mtime changes, so editing it updates this page"
+                            + " without a restart."
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeBodyMedium
                     wrapMode: Text.WordWrap
@@ -631,10 +698,25 @@ Item {
 
                 Text {
                     x: 0
-                    y: 100
-                    text: "Source: selkie.token.TokenBridge  (not wired yet)"
+                    y: pageRoot.noteCardHeight - 2 * Theme.spaceL - 34
+                    width: pageRoot.cardContentWidth
+                    text: "Source: " + pageRoot.dataSource + "  ·  revision " + tokens.revision
+                          + "  ·  preflight: " + status.preflightText
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeLabelSmall
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    x: 0
+                    y: pageRoot.noteCardHeight - 2 * Theme.spaceL - 16
+                    width: pageRoot.cardContentWidth
+                    visible: pageRoot.backendDown
+                    text: "Backend unreachable - showing manifest data only"
+                    color: Theme.errorHex
+                    font.pixelSize: Theme.typeLabelSmall
+                    font.bold: true
+                    elide: Text.ElideRight
                 }
             }
         }

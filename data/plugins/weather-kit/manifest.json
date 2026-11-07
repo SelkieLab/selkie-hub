@@ -1,0 +1,11 @@
+{
+  "id": "weather-kit",
+  "name": "Weather Kit",
+  "version": "1.4.0",
+  "publisher": "SelkieLab",
+  "description": "Adds a five-day forecast tool.",
+  "official": true,
+  "provides": ["tool", "prompt"],
+  "permissions": ["net:http"],
+  "token_policy": "schema-only"
+}

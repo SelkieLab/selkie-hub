@@ -20,8 +20,10 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Selkie Hub host: GLFW window + OpenGL 3.2 core context, Skija drawing into its
@@ -34,7 +36,11 @@ import java.util.Locale;
  *   <li><b>motion</b> - {@link MotionBridge} as {@code motion}: host-integrated MD3E
  *       springs, because qml4j has no SpringAnimation;</li>
  *   <li><b>input</b> - {@link InputDispatcher}: GLFW callbacks enqueue, the render thread
- *       dispatches pointer/key/wheel events into the view.</li>
+ *       dispatches pointer/key/wheel events into the view;</li>
+ *   <li><b>data</b> - {@link PluginBridge}, {@link TokenBridge} and {@link StatusBridge} as
+ *       {@code plugins} / {@code tokens} / {@code status}: real files from {@code data/},
+ *       hot-reloaded on the render thread, plus the optional embedded {@link DevBackend}
+ *       the status bridge polls.</li>
  * </ul>
  *
  * <p>Run with {@code gradlew run}. QML is loaded from the classpath (the Gradle build makes
@@ -50,10 +56,19 @@ import java.util.Locale;
  *   <li>{@code --toggle-after=<ms>} - call {@code theme.toggleDark()} once after N ms.</li>
  *   <li>{@code --move=x,y} - scripted pointer move on the first frame.</li>
  *   <li>{@code --click=x,y [--click-after=<ms>]} - scripted click (press+release).</li>
- *   <li>{@code --click-item=<objectName> [--click-after=<ms>]} - scripted click on an item's centre.</li>
+ *   <li>{@code --click-item=<objectName> [--click-after=<ms>]} - scripted click on an item's centre;</li>
+ *   <li>{@code --clicks=<objectName>@<ms>,...} - a timed click sequence, so an acceptance run can
+ *       walk several pages of one process (e.g. {@code --clicks=nav-1@3000,nav-3@9000}).</li>
  *   <li>{@code --resize=WxH [--resize-after=<ms>]} - resize the OS window.</li>
  *   <li>{@code --motion-trace} - print every animating spring channel each frame.</li>
  *   <li>{@code --trace-resources} - print every qml4j resource lookup.</li>
+ *   <li>{@code --dev-backend=<port>} - start the embedded dev backend (JDK HttpServer,
+ *       JSON) on that port and poll it for preflight/plugin health;</li>
+ *   <li>{@code --data-root=<path>} - read the fixtures from this directory instead of the
+ *       detected {@code data/}.</li>
+ *   <li>{@code --ignore-close-requests} - log WM_CLOSE but keep the loop running. Acceptance
+ *       runs use it on hosts where another window manager/watcher closes our window, which
+ *       would otherwise end a scripted run before its last screenshot.</li>
  * </ul>
  */
 public final class Main {
@@ -63,6 +78,16 @@ public final class Main {
     private static final int INITIAL_WIDTH = 1000;
     private static final int INITIAL_HEIGHT = 720;
     private static final long FRAME_BUDGET_NANOS = 16_666_667L;
+
+    /** Port the dev backend listens on when {@code --dev-backend} names none. */
+    private static final int DEFAULT_BACKEND_PORT = 7071;
+
+    /**
+     * Endpoint polled when no dev backend is started: the host still polls, finds nothing
+     * listening and degrades to "backend unreachable" - which is the point of the
+     * no-backend acceptance run.
+     */
+    private static final String DEFAULT_BACKEND_ENDPOINT = "http://127.0.0.1:" + DEFAULT_BACKEND_PORT;
 
     /** Swatches the Stage-1 demo scene draws; the host re-reads each resolved color. */
     private static final List<String> PROOF_ROLES = List.of(
@@ -77,7 +102,14 @@ public final class Main {
     /** Set by --trace-resources: logs every resource lookup qml4j makes. */
     private static boolean traceResources;
 
+    /** Set by --ignore-close-requests: a WM_CLOSE is logged but does not end the loop. */
+    private static boolean ignoreCloseRequests;
+
     private Main() {
+    }
+
+    /** One entry of {@code --clicks}: click the item named {@code objectName} at {@code atMs}. */
+    private record ScriptedClick(String objectName, long atMs) {
     }
 
     /** Everything the frame loop and the scripted runs need, parsed once from argv. */
@@ -86,12 +118,14 @@ public final class Main {
                            boolean hasMove, float moveX, float moveY,
                            boolean hasClick, float clickX, float clickY, long clickAfterMs,
                            boolean hasResize, int resizeW, int resizeH, long resizeAfterMs,
-                           String clickItem) {
+                           String clickItem, int devBackendPort, String dataRoot,
+                           List<ScriptedClick> clicks) {
     }
 
     public static void main(String[] args) {
         Options options = parseOptions(args);
         traceResources = hasFlag(args, "--trace-resources");
+        ignoreCloseRequests = hasFlag(args, "--ignore-close-requests");
         InputDispatcher.trace = hasFlag(args, "--trace-input");
         String title = options.title();
         long quitAfterMs = options.quitAfterMs();
@@ -110,6 +144,29 @@ public final class Main {
         ThemeBridge theme = new ThemeBridge(options.seedArgb(), options.startDark());
         MotionBridge motion = new MotionBridge();
         InputDispatcher input = new InputDispatcher();
+
+        // --- Stage-4 data layer: real files under data/, no network on the render thread ---
+        Path dataRoot = DataPaths.resolve(options.dataRoot());
+        PluginBridge plugins = new PluginBridge(dataRoot);
+        TokenBridge tokens = new TokenBridge(dataRoot);
+        DevBackend devBackend = null;
+        String endpoint = DEFAULT_BACKEND_ENDPOINT;
+        if (options.devBackendPort() > 0) {
+            try {
+                devBackend = DevBackend.start(options.devBackendPort(), dataRoot);
+                endpoint = devBackend.baseUrl();
+                System.out.println("[dev-backend] serving " + endpoint + " from " + dataRoot);
+            } catch (IOException error) {
+                System.err.println("[dev-backend] cannot listen on port "
+                        + options.devBackendPort() + ": " + error
+                        + " - the UI will report the preflight as unreachable");
+            }
+        } else {
+            System.out.println("[dev-backend] not started (no --dev-backend); polling " + endpoint
+                    + " anyway, so the UI must degrade to \"" + StatusBridge.UNREACHABLE + "\"");
+        }
+        StatusBridge status = new StatusBridge(new BackendPoller(endpoint));
+        DataLayer data = new DataLayer(plugins, tokens, status);
 
         long window = MemoryUtil.NULL;
         DirectContext directContext = null;
@@ -141,6 +198,16 @@ public final class Main {
                         + "3.2 core context on this session");
             }
             input.install(window);
+            // GLFW sets the close flag before invoking this callback, so clearing it here is
+            // what vetoes the request. Logged either way: a spurious WM_CLOSE from another
+            // process is otherwise indistinguishable from a user closing the window.
+            GLFW.glfwSetWindowCloseCallback(window, handle -> {
+                System.out.println("[selkie] window close request"
+                        + (ignoreCloseRequests ? " ignored (--ignore-close-requests)" : " accepted"));
+                if (ignoreCloseRequests) {
+                    GLFW.glfwSetWindowShouldClose(handle, false);
+                }
+            });
 
             GLFW.glfwMakeContextCurrent(window);
             GL.createCapabilities();
@@ -170,6 +237,11 @@ public final class Main {
             // undeclared free identifier, and Theme.qml binds to "theme" eagerly.
             view.context("theme", theme);
             view.context("motion", motion);
+            // Stage-4 data bridges: QML resolves plugins/tokens/status as free identifiers,
+            // so they must exist before load() just like theme/motion.
+            view.context("plugins", plugins);
+            view.context("tokens", tokens);
+            view.context("status", status);
             // QmlView.load(String source, String path): the FIRST argument is the QML
             // source text that must be parsed, the second is the unit path.
             //
@@ -187,21 +259,27 @@ public final class Main {
 
             renderOnce(view, backend);
             reportThemeProof(view, theme);
+            // What the QML bindings were handed at load time (revisions included).
+            data.report();
 
             GLFW.glfwShowWindow(window);
             GLFW.glfwFocusWindow(window);
             System.out.println("[selkie] window shown: " + title);
             System.out.println("[selkie] READY");
 
-            runLoop(view, backend, window, options, theme, motion, input);
+            runLoop(view, backend, window, options, theme, motion, input, data);
 
             System.out.println("[selkie] loop finished after "
                     + (quitAfterMs > 0 ? quitAfterMs + " ms (--quit-after)" : "window close"));
+            // Final state of the data layer, including every revision bumped by hot reload.
+            data.report();
         } catch (Throwable error) {
             System.err.println("[selkie] FATAL: " + error);
             error.printStackTrace(System.err);
             System.exit(2);
         } finally {
+            data.close();
+            if (devBackend != null) devBackend.close();
             if (view != null) view.dispose();
             if (backend != null) backend.dispose();
             if (directContext != null) directContext.close();
@@ -217,7 +295,8 @@ public final class Main {
     }
 
     private static void runLoop(QmlView view, SkijaGlBackend backend, long window, Options options,
-                                ThemeBridge theme, MotionBridge motion, InputDispatcher input) {
+                                ThemeBridge theme, MotionBridge motion, InputDispatcher input,
+                                DataLayer data) {
         long startNanos = System.nanoTime();
         long lastNanos = startNanos;
         int[] fbWidth = new int[1];
@@ -228,16 +307,25 @@ public final class Main {
         boolean toggled = false;
         boolean reportedToggle = false;
         boolean clicked = false;
+        int nextScriptedClick = 0;
         boolean moved = false;
         boolean resized = false;
 
         int lastFbW = backend.width();
         int lastFbH = backend.height();
+        // Recorded so the acceptance log says *why* a run stopped (a closed window looks
+        // identical to an expired --quit-after in the old single summary line).
+        String exitReason = "window close requested";
 
         while (!GLFW.glfwWindowShouldClose(window)) {
             // GLFW callbacks fire inside pollEvents; they only enqueue. Everything is
             // dispatched below, on this thread.
             GLFW.glfwPollEvents();
+
+            // Stage-4 data layer, once per frame on the render thread: stat the manifests and
+            // tokens.json (re-read only when they changed) and drain whatever the HTTP poller
+            // queued. This is what makes an on-disk edit show up without a restart.
+            data.tick();
 
             long now = System.nanoTime();
             long deltaNanos = now - lastNanos;
@@ -258,7 +346,8 @@ public final class Main {
                     Thread.sleep(50L);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
-                    return;
+                    exitReason = "interrupted while waiting for the window to un-minimise";
+                    break;
                 }
                 continue;
             }
@@ -288,6 +377,22 @@ public final class Main {
                     float[] center = absoluteCenter(target);
                     input.injectClick(center[0], center[1]);
                     System.out.println("[input] scripted click on '" + options.clickItem() + "'' centre -> "
+                            + String.format(Locale.ROOT, "%.1f,%.1f", center[0], center[1])
+                            + " at " + elapsedMs + " ms");
+                }
+            }
+            if (nextScriptedClick < options.clicks().size()
+                    && elapsedMs >= options.clicks().get(nextScriptedClick).atMs()) {
+                ScriptedClick scripted = options.clicks().get(nextScriptedClick);
+                nextScriptedClick++;
+                Item target = view.findByObjectName(scripted.objectName());
+                if (target == null) {
+                    System.err.println("[input] --clicks: no item named '" + scripted.objectName() + "'");
+                } else {
+                    float[] center = absoluteCenter(target);
+                    input.injectClick(center[0], center[1]);
+                    System.out.println("[input] scripted click #" + nextScriptedClick + " on '"
+                            + scripted.objectName() + "' -> "
                             + String.format(Locale.ROOT, "%.1f,%.1f", center[0], center[1])
                             + " at " + elapsedMs + " ms");
                 }
@@ -342,15 +447,82 @@ public final class Main {
                                 + String.format(Locale.ROOT, "%.5f", channel.value.peek()));
                     }
                 }
-                return;
+                exitReason = "--quit-after=" + options.quitAfterMs();
+                break;
             }
             long remaining = FRAME_BUDGET_NANOS - ((System.nanoTime() - startNanos) % FRAME_BUDGET_NANOS);
             try {
                 Thread.sleep(Math.max(1L, remaining / 1_000_000L));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
-                return;
+                exitReason = "interrupted during frame pacing";
+                break;
             }
+        }
+        System.out.println("[selkie] loop exit: " + exitReason + " after " + frames
+                + " frame(s), " + (System.nanoTime() - startNanos) / 1_000_000L + " ms");
+    }
+
+    /**
+     * The three Stage-4 data bridges, created once and ticked once per frame on the render
+     * thread.
+     *
+     * <p>Order matters: {@link StatusBridge#tick()} drains whatever the HTTP worker queued,
+     * and the newest health map is then pushed into {@link PluginBridge} so the plugin rows
+     * carry the backend's verdict. Nothing here does network I/O itself.
+     */
+    private record DataLayer(PluginBridge plugins, TokenBridge tokens, StatusBridge status) {
+
+        /** One frame of data work: file stats, conditional re-reads, queue drains. */
+        void tick() {
+            plugins.tick();
+            tokens.tick();
+            Map<String, PluginHealth> health = status.tick();
+            if (!health.isEmpty()) {
+                plugins.applyHealth(health);
+            }
+        }
+
+        /** Evidence block: exactly what the QML bindings are holding right now. */
+        void report() {
+            System.out.println("[data] plugins revision=" + plugins.revision.peek()
+                    + " count=" + plugins.count.peek()
+                    + " official=" + plugins.officialItems.peek().size()
+                    + " thirdParty=" + plugins.thirdPartyItems.peek().size()
+                    + " source=" + plugins.source.peek()
+                    + " dir=" + plugins.pluginsDirectory());
+            StringBuilder detail = new StringBuilder();
+            for (PluginInfo plugin : plugins.items.peek()) {
+                detail.append(System.lineSeparator()).append("[data]   ").append(plugin.id)
+                        .append(" name=\"").append(plugin.name).append("\"")
+                        .append(" version=").append(plugin.version)
+                        .append(" official=").append(plugin.official)
+                        .append(" health=").append(plugin.health)
+                        .append(" latency=").append(plugin.latencyMs).append("ms")
+                        .append(" provides=\"").append(plugin.providesText).append("\"")
+                        .append(" permissions=\"").append(plugin.permissionsText).append("\"")
+                        .append(" token_policy=").append(plugin.tokenPolicy);
+            }
+            if (detail.length() > 0) {
+                System.out.println(detail);
+            }
+            System.out.println("[data] tokens revision=" + tokens.revision.peek()
+                    + " source=" + tokens.source.peek()
+                    + " used=" + fmt(tokens.used.peek()) + "/" + fmt(tokens.total.peek())
+                    + " persona=" + fmt(tokens.persona.peek())
+                    + " recall=" + fmt(tokens.recall.peek())
+                    + " tools=" + fmt(tokens.tools.peek())
+                    + " history=" + fmt(tokens.history.peek())
+                    + " file=" + tokens.file());
+            System.out.println("[status] preflightOk=" + status.preflightOk.peek()
+                    + " text=\"" + status.preflightText.peek() + "\""
+                    + " endpoint=" + status.endpointUrl()
+                    + " polls=" + status.pollCount.peek());
+        }
+
+        /** Stops the background poller; the dev backend is closed by main(). */
+        void close() {
+            status.close();
         }
     }
 
@@ -570,11 +742,39 @@ public final class Main {
         int[] resize = parseSize(flag(args, "--resize=", ""));
         long resizeAfterMs = parseLong(flag(args, "--resize-after=", "0"), 0L);
 
+        // Stage 4: --dev-backend=<port> (absent/-1 = do not start one) and --data-root=<path>.
+        int devBackendPort = parseInt(flag(args, "--dev-backend=", ""), -1);
+        String dataRoot = flag(args, "--data-root=", null);
+
         return new Options(title, qml, quitAfterMs, toggleAfterMs, startDark, seedArgb, traceMotion,
                 move != null, move != null ? move[0] : 0f, move != null ? move[1] : 0f,
                 click != null, click != null ? click[0] : 0f, click != null ? click[1] : 0f, clickAfterMs,
                 resize != null, resize != null ? resize[0] : 0, resize != null ? resize[1] : 0, resizeAfterMs,
-                flag(args, "--click-item=", null));
+                flag(args, "--click-item=", null), devBackendPort, dataRoot,
+                parseClicks(flag(args, "--clicks=", "")));
+    }
+
+    /**
+     * Parses {@code --clicks=nav-1@3000,nav-3@9000} into an ordered click sequence. A missing
+     * {@code @ms} means "as early as possible"; a malformed entry is skipped rather than
+     * aborting the run.
+     */
+    private static List<ScriptedClick> parseClicks(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        List<ScriptedClick> clicks = new ArrayList<>();
+        for (String chunk : value.split(",")) {
+            String entry = chunk.trim();
+            if (entry.isEmpty()) continue;
+            String objectName = entry;
+            long atMs = 0L;
+            int at = entry.lastIndexOf('@');
+            if (at > 0) {
+                objectName = entry.substring(0, at).trim();
+                atMs = parseLong(entry.substring(at + 1), 0L);
+            }
+            if (!objectName.isEmpty()) clicks.add(new ScriptedClick(objectName, atMs));
+        }
+        return List.copyOf(clicks);
     }
 
     private static float[] parsePair(String value) {

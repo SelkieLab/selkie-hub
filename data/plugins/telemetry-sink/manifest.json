@@ -1,0 +1,11 @@
+{
+  "id": "telemetry-sink",
+  "name": "Telemetry Sink",
+  "version": "0.9.3",
+  "publisher": "Hoshino Works",
+  "description": "Ships usage counters to a self-hosted endpoint.",
+  "official": false,
+  "provides": ["tool"],
+  "permissions": ["net:http"],
+  "token_policy": "full-body"
+}

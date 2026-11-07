@@ -2,24 +2,35 @@ import QtQuick 2.15
 import ".."
 import "../components"
 
-// PluginsPage - Stage 3a plugin management skeleton.
+// PluginsPage - Stage 4: the whole inventory is live host data.
 //
-// WHAT THIS PAGE IS
-//   A filter row (All / Official / Third party), then two grouped sections: three
-//   official plugins and two third-party ones. Every row is name + one-line
-//   description + a state chip. The last third-party row is deliberately
-//   disabled-looking: Theme.surfaceContainerHighest as the row surface and
-//   Theme.onSurfaceVariant for its text - opaque roles, never an alpha colour.
+// DATA SOURCE
+//   The context object "plugins" (selkie.host.PluginBridge, registered by the host BEFORE
+//   view.load) publishes three ready-made lists. This page uses the two pre-split ones:
+//   officialItems and thirdPartyItems, plus count / source for the header. There is no
+//   placeholder array left in this file - every row is a PluginInfo the host parsed out of
+//   data/plugins/<id>/manifest.json.
 //
-// WHY THERE ARE NO WIDGET TYPES
-//   qml4j has no Controls layer (no ListView row, no Switch inside a list, no Menu),
-//   so a row is an Item with Texts, a hairline Rectangle and a chip that is itself a
-//   Rectangle + Text. The chips are pills: radius = half the chip height.
+// WHY THE DELEGATE READS FIELDS
+//   PluginInfo is a POJO with public fields only (qml4j resolves members through
+//   Class.getField, so a Java getter would be invisible). A delegate therefore writes
+//   modelData.name, modelData.health, modelData.latencyMs, ... and never modelData.getName().
+//   providesText / permissionsText are the host's pre-joined strings ("tool, prompt") because
+//   QML cannot read a List<String> reliably; the raw lists still exist host-side for tests.
 //
-// FILTERS ARE STYLING-ONLY FOR NOW
-//   The three buttons really do switch which one is filled/outlined, but they do not
-//   hide rows yet - real filtering needs PluginBridge (Stage 4) so that the counts,
-//   the rows and the enable/disable commands all come from one source of truth.
+// HEALTH COLOURS
+//   healthy -> Theme.primary, degraded -> Theme.error, unknown -> Theme.outline. The dot, the
+//   pill border and the pill label all take that role, so the state survives a scheme flip
+//   without any literal colour.
+//
+// FILTERS REALLY FILTER
+//   All shows both cards; Official / Third party hide the other section. A Column skips
+//   invisible children, so hiding a section leaves no empty slot behind.
+//
+// DEGRADED MODE
+//   When status.preflightOk is false the dev backend is not answering: the page says so at the
+//   top in Theme.error and keeps rendering the manifest data it already has, because the
+//   manifests are local files and remain valid without the backend.
 //
 // PAGE CONTRACT (the shell owns geometry)
 //   Root is Item { id: pageRoot } with no x/y/width/height; the shell sets the box.
@@ -27,65 +38,42 @@ import "../components"
 //
 // INTERACTIVE OBJECTNAMES: plugin-filter-all, plugin-filter-official,
 //   plugin-filter-third-party, plugins-official, plugins-third-party
-//
-// CONTRACT COMPLIANCE: colours Theme.<role>Hex, radii Theme.shape*, type Theme.type*,
-//   spacing Theme.space*. "transparent" is the engine's alpha-zero colour, not a
-//   palette role.
 
 Item {
     id: pageRoot
 
     // ------------------------------------------------------------------
-    // filter placeholder - Stage 4 wires this to PluginBridge
+    // filter state - 0 All, 1 Official, 2 Third party
     // ------------------------------------------------------------------
     property int filterIndex: 0
 
     // ------------------------------------------------------------------
-    // placeholder inventory - Stage 4 replaces these two models
+    // live data - selkie.host.PluginBridge as the context object "plugins"
     // ------------------------------------------------------------------
-    readonly property var officialPlugins: [
-        {
-            name: "Persona Injector",
-            description: "Prepends the active persona card to every turn",
-            state: "Active",
-            tone: "ok",
-            disabled: false
-        },
-        {
-            name: "Memory Vault",
-            description: "Stores and recalls memory cards from the local vault",
-            state: "Active",
-            tone: "ok",
-            disabled: false
-        },
-        {
-            name: "Tool Registry",
-            description: "Publishes tool schemas to the model context",
-            state: "Update 1.4.0",
-            tone: "info",
-            disabled: false
-        }
-    ]
+    readonly property int installedCount: plugins.count
+    readonly property int officialCount: plugins.officialItems.length
+    readonly property int thirdPartyCount: plugins.thirdPartyItems.length
+    readonly property string dataSource: plugins.source
+    // Degraded state: a FAILED poll, not the pre-poll default. status.preflightOk starts
+    // false (and pollCount 0) while the first request is still in flight, so gating on
+    // pollCount keeps a healthy launch from flashing an error banner for two frames.
+    readonly property bool backendDown: status.preflightOk === false && status.pollCount > 0
 
-    readonly property var thirdPartyPlugins: [
-        {
-            name: "Weather Kit",
-            description: "Adds a five-day forecast tool from a community feed",
-            state: "Active",
-            tone: "ok",
-            disabled: false
-        },
-        {
-            name: "Telemetry Sink",
-            description: "Ships usage counters to a self-hosted endpoint",
-            state: "Disabled",
-            tone: "muted",
-            disabled: true
+    // ------------------------------------------------------------------
+    // formatting helpers
+    //   Values are passed IN as arguments so the dependency on a bridge property is
+    //   recorded by the binding that calls the function, not by the function body.
+    // ------------------------------------------------------------------
+    function groupThousands(value) {
+        var n = Math.round(value);
+        var text = "" + n;
+        var out = "";
+        while (text.length > 3) {
+            out = "," + text.substring(text.length - 3) + out;
+            text = text.substring(0, text.length - 3);
         }
-    ]
-
-    readonly property int installedCount: pageRoot.officialPlugins.length
-                                            + pageRoot.thirdPartyPlugins.length
+        return text + out;
+    }
 
     // ------------------------------------------------------------------
     // page geometry
@@ -97,9 +85,19 @@ Item {
 
     readonly property real filterRowHeight: 40
     readonly property real sectionHeadingHeight: 26
-    readonly property real rowHeight: 52
-    readonly property real officialCardHeight: 3 * pageRoot.rowHeight + 2 * Theme.spaceL
-    readonly property real thirdPartyCardHeight: 2 * pageRoot.rowHeight + 2 * Theme.spaceL
+    readonly property real rowHeight: 60
+    readonly property real emptyRowHeight: 34
+    readonly property real statusRowHeight: 22
+
+    // A card is its rows plus the M3Card padding; an empty group shrinks to one line.
+    readonly property real officialCardHeight: 2 * Theme.spaceL
+                                                + (pageRoot.officialCount === 0
+                                                   ? pageRoot.emptyRowHeight
+                                                   : pageRoot.officialCount * pageRoot.rowHeight)
+    readonly property real thirdPartyCardHeight: 2 * Theme.spaceL
+                                                  + (pageRoot.thirdPartyCount === 0
+                                                     ? pageRoot.emptyRowHeight
+                                                     : pageRoot.thirdPartyCount * pageRoot.rowHeight)
 
     Flickable {
         id: scroller
@@ -115,6 +113,26 @@ Item {
             id: contentColumn
             width: scroller.width
             spacing: Theme.spaceL
+
+            // ==========================================================
+            // degraded banner: the backend is not answering
+            // ==========================================================
+            Item {
+                width: pageRoot.contentWidth
+                height: pageRoot.backendDown ? pageRoot.statusRowHeight : 0
+                visible: pageRoot.backendDown
+
+                Text {
+                    x: 0
+                    y: 0
+                    width: parent.width
+                    text: "Backend unreachable - showing manifest data only"
+                    color: Theme.errorHex
+                    font.pixelSize: Theme.typeBodySmall
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                }
+            }
 
             // ==========================================================
             // filter row - filled = selected, outlined = available
@@ -147,6 +165,9 @@ Item {
                 }
             }
 
+            // ==========================================================
+            // count line, straight from the bridge
+            // ==========================================================
             Item {
                 width: pageRoot.contentWidth
                 height: 18
@@ -154,20 +175,24 @@ Item {
                 Text {
                     x: 0
                     y: 0
+                    width: parent.width
                     text: pageRoot.installedCount + " installed  ·  "
-                          + pageRoot.officialPlugins.length + " official  ·  "
-                          + pageRoot.thirdPartyPlugins.length + " third party"
+                          + pageRoot.officialCount + " official  ·  "
+                          + pageRoot.thirdPartyCount + " third party  ·  source: "
+                          + pageRoot.dataSource
                     color: Theme.onSurfaceVariantHex
                     font.pixelSize: Theme.typeBodySmall
+                    elide: Text.ElideRight
                 }
             }
 
             // ==========================================================
-            // section 1: official
+            // section 1: official plugins
             // ==========================================================
             Item {
                 width: pageRoot.contentWidth
                 height: pageRoot.sectionHeadingHeight
+                visible: pageRoot.filterIndex !== 2
 
                 Text {
                     x: 0
@@ -182,9 +207,23 @@ Item {
             M3Card {
                 id: officialCard
                 objectName: "plugins-official"
+                visible: pageRoot.filterIndex !== 2
                 width: pageRoot.cardWidth
                 height: pageRoot.officialCardHeight
                 variant: "outlined"
+
+                // empty state: the manifest tree has no official plugin yet
+                Text {
+                    x: 0
+                    y: 0
+                    width: pageRoot.cardContentWidth
+                    visible: pageRoot.officialCount === 0
+                    text: "No official plugins found - add data/plugins/<id>/manifest.json"
+                          + " with \"official\": true and reload."
+                    color: Theme.onSurfaceVariantHex
+                    font.pixelSize: Theme.typeBodySmall
+                    elide: Text.ElideRight
+                }
 
                 Column {
                     id: officialRows
@@ -192,9 +231,10 @@ Item {
                     y: 0
                     width: pageRoot.cardContentWidth
                     spacing: 0
+                    visible: pageRoot.officialCount > 0
 
                     Repeater {
-                        model: pageRoot.officialPlugins
+                        model: plugins.officialItems
 
                         delegate: Item {
                             width: officialRows.width
@@ -202,45 +242,74 @@ Item {
 
                             Text {
                                 x: 0
-                                y: 6
+                                y: 5
+                                width: parent.width - 150
                                 text: modelData.name
                                 color: Theme.onSurfaceHex
                                 font.pixelSize: Theme.typeBodyMedium
                                 font.bold: true
+                                elide: Text.ElideRight
                             }
 
                             Text {
                                 x: 0
-                                y: 26
-                                width: parent.width - 140
+                                y: 24
+                                width: parent.width - 150
                                 text: modelData.description
                                 color: Theme.onSurfaceVariantHex
                                 font.pixelSize: Theme.typeBodySmall
                                 elide: Text.ElideRight
                             }
 
-                            // state chip: pill = radius half the height
+                            // one meta line: who published it, what it contributes
+                            Text {
+                                x: 0
+                                y: 41
+                                width: parent.width - 150
+                                text: modelData.publisher + "  ·  v" + modelData.version
+                                      + "  ·  provides " + modelData.providesText
+                                      + "  ·  needs " + modelData.permissionsText
+                                      + "  ·  " + modelData.tokenPolicy
+                                color: Theme.onSurfaceVariantHex
+                                font.pixelSize: Theme.typeLabelSmall
+                                elide: Text.ElideRight
+                            }
+
+                            // status pill: 1dp border + label carry the health colour
                             Rectangle {
-                                id: officialChip
+                                id: officialPill
                                 anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: officialChipLabel.implicitWidth + 2 * Theme.spaceM
-                                height: 24
+                                y: 4
+                                width: officialPillLabel.implicitWidth + 2 * Theme.spaceM
+                                height: 22
                                 radius: Math.min(Theme.shapeFull, height / 2)
-                                color: modelData.tone === "info"
-                                       ? Theme.tertiaryContainerHex
-                                       : Theme.secondaryContainerHex
+                                color: "transparent"
+                                border.width: 1
+                                border.color: modelData.health === "healthy" ? Theme.primaryHex
+                                              : (modelData.health === "degraded" ? Theme.errorHex
+                                                                                 : Theme.outlineHex)
 
                                 Text {
-                                    id: officialChipLabel
+                                    id: officialPillLabel
                                     anchors.centerIn: parent
-                                    text: modelData.state
-                                    color: modelData.tone === "info"
-                                           ? Theme.onTertiaryContainerHex
-                                           : Theme.onSecondaryContainerHex
+                                    text: modelData.health
+                                    color: modelData.health === "healthy" ? Theme.primaryHex
+                                           : (modelData.health === "degraded" ? Theme.errorHex
+                                                                              : Theme.outlineHex)
                                     font.pixelSize: Theme.typeLabelSmall
                                     font.bold: true
                                 }
+                            }
+
+                            // measured round trip, only when the backend reported one
+                            Text {
+                                id: officialLatency
+                                anchors.right: parent.right
+                                y: 30
+                                visible: modelData.latencyMs > 0
+                                text: modelData.latencyMs + " ms"
+                                color: Theme.onSurfaceVariantHex
+                                font.pixelSize: Theme.typeLabelSmall
                             }
 
                             // hairline between rows, not under the last one
@@ -249,7 +318,7 @@ Item {
                                 y: parent.height - 1
                                 width: parent.width
                                 height: 1
-                                visible: index < pageRoot.officialPlugins.length - 1
+                                visible: index < pageRoot.officialCount - 1
                                 color: Theme.outlineVariantHex
                                 opacity: 0.6
                             }
@@ -259,11 +328,12 @@ Item {
             }
 
             // ==========================================================
-            // section 2: third party (last row is disabled-looking)
+            // section 2: third-party plugins
             // ==========================================================
             Item {
                 width: pageRoot.contentWidth
                 height: pageRoot.sectionHeadingHeight
+                visible: pageRoot.filterIndex !== 1
 
                 Text {
                     x: 0
@@ -278,9 +348,22 @@ Item {
             M3Card {
                 id: thirdPartyCard
                 objectName: "plugins-third-party"
+                visible: pageRoot.filterIndex !== 1
                 width: pageRoot.cardWidth
                 height: pageRoot.thirdPartyCardHeight
                 variant: "outlined"
+
+                Text {
+                    x: 0
+                    y: 0
+                    width: pageRoot.cardContentWidth
+                    visible: pageRoot.thirdPartyCount === 0
+                    text: "No third-party plugins installed - every plugin in data/plugins"
+                          + " is marked official."
+                    color: Theme.onSurfaceVariantHex
+                    font.pixelSize: Theme.typeBodySmall
+                    elide: Text.ElideRight
+                }
 
                 Column {
                     id: thirdPartyRows
@@ -288,70 +371,82 @@ Item {
                     y: 0
                     width: pageRoot.cardContentWidth
                     spacing: 0
+                    visible: pageRoot.thirdPartyCount > 0
 
                     Repeater {
-                        model: pageRoot.thirdPartyPlugins
+                        model: plugins.thirdPartyItems
 
                         delegate: Item {
                             width: thirdPartyRows.width
                             height: pageRoot.rowHeight
 
-                            // disabled-looking surface: an opaque role, not an alpha wash
-                            Rectangle {
-                                x: 0
-                                y: 2
-                                width: parent.width
-                                height: parent.height - 4
-                                radius: Theme.shapeS
-                                visible: modelData.disabled === true
-                                color: Theme.surfaceContainerHighestHex
-                            }
-
                             Text {
-                                x: modelData.disabled === true ? Theme.spaceM : 0
-                                y: 6
+                                x: 0
+                                y: 5
+                                width: parent.width - 150
                                 text: modelData.name
-                                color: modelData.disabled === true
-                                       ? Theme.onSurfaceVariantHex
-                                       : Theme.onSurfaceHex
+                                color: Theme.onSurfaceHex
                                 font.pixelSize: Theme.typeBodyMedium
                                 font.bold: true
+                                elide: Text.ElideRight
                             }
 
                             Text {
-                                x: modelData.disabled === true ? Theme.spaceM : 0
-                                y: 26
-                                width: parent.width - 140
+                                x: 0
+                                y: 24
+                                width: parent.width - 150
                                 text: modelData.description
                                 color: Theme.onSurfaceVariantHex
                                 font.pixelSize: Theme.typeBodySmall
                                 elide: Text.ElideRight
                             }
 
+                            Text {
+                                x: 0
+                                y: 41
+                                width: parent.width - 150
+                                text: modelData.publisher + "  ·  v" + modelData.version
+                                      + "  ·  provides " + modelData.providesText
+                                      + "  ·  needs " + modelData.permissionsText
+                                      + "  ·  " + modelData.tokenPolicy
+                                color: Theme.onSurfaceVariantHex
+                                font.pixelSize: Theme.typeLabelSmall
+                                elide: Text.ElideRight
+                            }
+
                             Rectangle {
-                                id: thirdChip
+                                id: thirdPill
                                 anchors.right: parent.right
-                                anchors.rightMargin: modelData.disabled === true ? Theme.spaceM : 0
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: thirdChipLabel.implicitWidth + 2 * Theme.spaceM
-                                height: 24
+                                y: 4
+                                width: thirdPillLabel.implicitWidth + 2 * Theme.spaceM
+                                height: 22
                                 radius: Math.min(Theme.shapeFull, height / 2)
-                                color: modelData.disabled === true
-                                       ? "transparent"
-                                       : Theme.secondaryContainerHex
-                                border.width: modelData.disabled === true ? 1 : 0
-                                border.color: Theme.outlineVariantHex
+                                color: "transparent"
+                                border.width: 1
+                                border.color: modelData.health === "healthy" ? Theme.primaryHex
+                                              : (modelData.health === "degraded" ? Theme.errorHex
+                                                                                 : Theme.outlineHex)
 
                                 Text {
-                                    id: thirdChipLabel
+                                    id: thirdPillLabel
                                     anchors.centerIn: parent
-                                    text: modelData.state
-                                    color: modelData.disabled === true
-                                           ? Theme.onSurfaceVariantHex
-                                           : Theme.onSecondaryContainerHex
+                                    text: modelData.health
+                                    color: modelData.health === "healthy" ? Theme.primaryHex
+                                           : (modelData.health === "degraded" ? Theme.errorHex
+                                                                              : Theme.outlineHex)
                                     font.pixelSize: Theme.typeLabelSmall
                                     font.bold: true
                                 }
+                            }
+
+                            Text {
+                                id: thirdLatency
+                                anchors.right: parent.right
+                                y: 30
+                                visible: modelData.latencyMs > 0
+                                text: modelData.latencyMs + " ms"
+                                color: Theme.onSurfaceVariantHex
+                                font.pixelSize: Theme.typeLabelSmall
                             }
 
                             Rectangle {
@@ -359,12 +454,31 @@ Item {
                                 y: parent.height - 1
                                 width: parent.width
                                 height: 1
-                                visible: index < pageRoot.thirdPartyPlugins.length - 1
+                                visible: index < pageRoot.thirdPartyCount - 1
                                 color: Theme.outlineVariantHex
                                 opacity: 0.6
                             }
                         }
                     }
+                }
+            }
+
+            // ==========================================================
+            // footer: what the host is reading, and the preflight verdict
+            // ==========================================================
+            Item {
+                width: pageRoot.contentWidth
+                height: 20
+
+                Text {
+                    x: 0
+                    y: 0
+                    width: parent.width
+                    text: "Source: " + pageRoot.dataSource + "  ·  revision "
+                          + plugins.revision + "  ·  preflight: " + status.preflightText
+                    color: Theme.onSurfaceVariantHex
+                    font.pixelSize: Theme.typeLabelSmall
+                    elide: Text.ElideRight
                 }
             }
         }

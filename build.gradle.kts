@@ -17,6 +17,9 @@ val lwjglVersion = "3.3.3"
 val skijaVersion = "0.143.17"
 val qml4jVersion = "v0.2.38"
 val junitVersion = "5.10.2"
+// JSON for the data layer (plugin manifests, token sample, dev-backend payloads).
+// Stage 4 only - the UI runtime itself stays dependency-free.
+val jacksonVersion = "2.17.2"
 
 // Native classifiers for the host OS. Windows is the shipping target; the other
 // branches keep the build honest on a Linux/macOS dev box.
@@ -79,6 +82,10 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-glfw::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-opengl::$lwjglNatives")
+
+    // JSON parsing/writing for the data layer: data/plugins/*/manifest.json,
+    // data/tokens.json and the dev backend's responses.
+    implementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
 
     // Silences the "missing @Contract annotation" javac lint noise raised by Skija's
     // JetBrains-annotated bytecode; compile-time only.
