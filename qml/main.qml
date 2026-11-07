@@ -1,592 +1,505 @@
 import QtQuick 2.15
 import "."
+import "components"
 
-// Stage 1b demo surface: proves the MD3E scheme reaches QML through the Theme
-// singleton (which only delegates to the ThemeBridge context object).
+// Selkie Hub - Stage 2 shell.
 //
-// Everything visible here is a BINDING onto Theme - flipping light/dark or re-seeding
-// in Java must repaint every pixel on this screen without touching this file.
-
+// Three-pane layout: NavigationRail (left) | page area with TopBar (centre) | detail
+// panel (right). The rail collapses to icons below 600px and the detail panel folds
+// away below 1000px, so the same tree serves mouse and narrow windows.
+//
+// Every colour, radius, font size and spring parameter comes from the Theme singleton;
+// this file only decides geometry. Nothing here creates a window - the host owns the
+// GLFW window, the Skija surface and the render loop.
 Rectangle {
-    width: 1000
-    height: 720
-    color: Theme.background
+    id: root
 
-    Text {
-        x: 32
-        y: 18
-        text: "Selkie Hub - MD3E theme bridge"
-        color: Theme.onBackground
-        font.pixelSize: 26
-        font.bold: true
+    width: 1200
+    height: 780
+    color: Theme.surface
+
+    // ---- responsive thresholds (MD3E window size classes) ----
+    readonly property bool railCollapsed: width < 600
+    readonly property bool panelVisible: width >= 1100
+    readonly property real panelWidth: panelVisible ? 300 : 0
+
+    readonly property var destinations: [
+        { glyph: "D", label: "Dashboard" },
+        { glyph: "P", label: "Plugins" },
+        { glyph: "M", label: "Memory" },
+        { glyph: "T", label: "Tokens" },
+        { glyph: "S", label: "Settings" },
+        { glyph: "O", label: "Onboarding" }
+    ]
+
+    readonly property var pageTitles: [
+        "Dashboard", "Plugins", "Memory cards", "Tokens", "Settings", "Onboarding"
+    ]
+
+    readonly property var pageSubtitles: [
+        "Everything at a glance",
+        "Official and third-party plugins",
+        "What the hub remembers",
+        "Where the context budget goes",
+        "Appearance and behaviour",
+        "First-run setup"
+    ]
+
+    property int currentPage: 0
+
+    // ------------------------------------------------------------------
+    // left pane
+    // ------------------------------------------------------------------
+    NavigationRail {
+        id: rail
+        x: 0
+        y: 0
+        height: root.height
+        collapsed: root.railCollapsed
+        destinations: root.destinations
+        currentIndex: root.currentPage
+        onDestinationSelected: root.currentPage = index
     }
 
-    Text {
-        objectName: "txt-scheme"
-        x: 32
-        y: 54
-        text: "seed " + Theme.seedHex + "   roles " + Theme.roleCount
-              + "   mode " + (Theme.dark ? "dark" : "light")
-        color: Theme.onSurfaceVariant
-        font.pixelSize: 14
+    // ------------------------------------------------------------------
+    // centre pane
+    // ------------------------------------------------------------------
+    Item {
+        id: centre
+        x: rail.width
+        y: 0
+        width: root.width - rail.width - root.panelWidth
+        height: root.height
+
+        TopBar {
+            id: topBar
+            x: 0
+            y: 0
+            width: centre.width
+            compact: centre.width < 720
+            title: root.pageTitles[root.currentPage]
+            subtitle: root.pageSubtitles[root.currentPage]
+            tokenUsed: 118400
+            tokenTotal: 200000
+            themeGlyph: Theme.dark ? "L" : "D"
+            onThemeToggleClicked: theme.toggleDark()
+            onNotificationsClicked: toast.show("No new notifications")
+        }
+
+        Item {
+            id: pages
+            x: 0
+            y: topBar.height
+            width: centre.width
+            height: centre.height - topBar.height
+
+            // ---------------- page 0: component demo (Stage 2 acceptance) ----------------
+            Item {
+                id: dashboardPage
+                x: 0
+                y: 0
+                width: pages.width
+                height: pages.height
+                visible: root.currentPage === 0
+
+                M3Card {
+                    id: componentsCard
+                    x: Theme.spaceXl
+                    y: Theme.spaceXl
+                    width: Math.min(720, pages.width - 2 * Theme.spaceXl)
+                    height: 330
+                    variant: "elevated"
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "MD3E components"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
+
+                    Text {
+                        x: 0
+                        y: 26
+                        width: componentsCard.width - 2 * componentsCard.padding
+                        text: "Live children of the theme: flip light/dark in the top bar and every"
+                              + " surface below repaints without reloading."
+                        color: Theme.onSurfaceVariant
+                        font.pixelSize: Theme.typeBodySmall
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // switch row
+                    Text {
+                        x: 0
+                        y: 72
+                        text: "Spring switch"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeLabelLarge
+                    }
+
+                    M3Switch {
+                        id: demoSwitch
+                        x: 150
+                        y: 66
+                        checked: true
+                        onToggled: toast.show("Switch is now " + (checked ? "on" : "off"))
+                    }
+
+                    // tabs row
+                    M3Tabs {
+                        id: demoTabs
+                        x: 0
+                        y: 128
+                        width: Math.min(420, componentsCard.width - 2 * componentsCard.padding)
+                        labels: ["Overview", "Activity", "Storage"]
+                        currentIndex: 0
+                        onTabSelected: toast.show("Tab " + index + " selected")
+                    }
+
+                    // button row: a Row positioner flows them, so no fixed x can clip
+                    Row {
+                        x: 0
+                        y: 208
+                        spacing: Theme.spaceS
+
+                        M3Button {
+                            id: btnFilled
+                            text: "Filled"
+                            onClicked: toast.show("Filled pressed")
+                        }
+
+                        M3Button {
+                            text: "Tonal"
+                            variant: "tonal"
+                            onClicked: toast.show("Tonal pressed")
+                        }
+
+                        M3Button {
+                            text: "Outlined"
+                            variant: "outlined"
+                            onClicked: toast.show("Outlined pressed")
+                        }
+
+                        M3Button {
+                            text: "Text"
+                            variant: "text"
+                            onClicked: toast.show("Text pressed")
+                        }
+                    }
+                }
+
+                M3Card {
+                    id: formCard
+                    x: Theme.spaceXl
+                    y: componentsCard.y + componentsCard.height + Theme.spaceL
+                    width: componentsCard.width
+                    height: 220
+                    variant: "filled"
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "Toast + text field"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleSmall
+                        font.bold: true
+                    }
+
+                    M3TextField {
+                        id: demoField
+                        x: 0
+                        y: 36
+                        width: Math.min(340, formCard.width - 2 * formCard.padding)
+                        label: "Display name"
+                        placeholder: "Selkie"
+                    }
+
+                    M3Button {
+                        id: btnToast
+                        x: 0
+                        y: 140
+                        text: "Show toast"
+                        variant: "tonal"
+                        onClicked: toast.show("Saved " + (demoField.text.length > 0 ? demoField.text : "settings"))
+                    }
+                }
+            }
+
+            // ---------------- pages 1..5: skeletons ----------------
+            Item {
+                x: 0
+                y: 0
+                width: pages.width
+                height: pages.height
+                visible: root.currentPage === 1
+
+                M3Card {
+                    x: Theme.spaceXl
+                    y: Theme.spaceXl
+                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
+                    height: 180
+                    variant: "outlined"
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "Plugins"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
+
+                    Text {
+                        x: 0
+                        y: 34
+                        width: parent.width
+                        text: "Official and third-party plugin health lands here in Stage 4, fed by"
+                              + " PluginBridge. This is the Stage 2 skeleton."
+                        color: Theme.onSurfaceVariant
+                        font.pixelSize: Theme.typeBodyMedium
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Item {
+                x: 0
+                y: 0
+                width: pages.width
+                height: pages.height
+                visible: root.currentPage === 2
+
+                M3Card {
+                    x: Theme.spaceXl
+                    y: Theme.spaceXl
+                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
+                    height: 180
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "Memory cards"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
+
+                    Text {
+                        x: 0
+                        y: 34
+                        width: parent.width
+                        text: "Card grid placeholder - the recall surface arrives in Stage 3/4."
+                        color: Theme.onSurfaceVariant
+                        font.pixelSize: Theme.typeBodyMedium
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Item {
+                x: 0
+                y: 0
+                width: pages.width
+                height: pages.height
+                visible: root.currentPage === 3
+
+                M3Card {
+                    x: Theme.spaceXl
+                    y: Theme.spaceXl
+                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
+                    height: 180
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "Tokens"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
+
+                    Text {
+                        x: 0
+                        y: 34
+                        width: parent.width
+                        text: "Persona injection, memory recall, tool schema and history will be broken"
+                              + " out here from TokenBridge in Stage 4."
+                        color: Theme.onSurfaceVariant
+                        font.pixelSize: Theme.typeBodyMedium
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Item {
+                x: 0
+                y: 0
+                width: pages.width
+                height: pages.height
+                visible: root.currentPage === 4
+
+                M3Card {
+                    x: Theme.spaceXl
+                    y: Theme.spaceXl
+                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
+                    height: 200
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "Settings"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
+
+                    Text {
+                        x: 0
+                        y: 34
+                        text: "Dark mode"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeLabelLarge
+                    }
+
+                    M3Switch {
+                        x: 0
+                        y: 66
+                        checked: Theme.dark
+                        onToggled: theme.setDark(checked)
+                    }
+
+                    Text {
+                        x: 0
+                        y: 132
+                        text: "Seed colour picker and UI scale arrive in Stage 5."
+                        color: Theme.onSurfaceVariant
+                        font.pixelSize: Theme.typeBodySmall
+                    }
+                }
+            }
+
+            Item {
+                x: 0
+                y: 0
+                width: pages.width
+                height: pages.height
+                visible: root.currentPage === 5
+
+                M3Card {
+                    x: Theme.spaceXl
+                    y: Theme.spaceXl
+                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
+                    height: 180
+                    variant: "elevated"
+
+                    Text {
+                        x: 0
+                        y: 0
+                        text: "Onboarding"
+                        color: Theme.onSurface
+                        font.pixelSize: Theme.typeTitleMedium
+                        font.bold: true
+                    }
+
+                    Text {
+                        x: 0
+                        y: 34
+                        width: parent.width
+                        text: "First-run wizard placeholder."
+                        color: Theme.onSurfaceVariant
+                        font.pixelSize: Theme.typeBodyMedium
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+        }
     }
 
-    // ---- the only interactive control: flip light <-> dark ----
+    // ------------------------------------------------------------------
+    // right pane
+    // ------------------------------------------------------------------
     Rectangle {
-        objectName: "btn-toggle"
-        x: 772
-        y: 16
-        width: 196
-        height: 46
-        radius: 23
-        color: Theme.primary
+        id: panel
+        visible: root.panelVisible
+        x: root.width - root.panelWidth
+        y: 0
+        width: root.panelWidth
+        height: root.height
+        color: Theme.surfaceContainerLow
 
-        Text {
-            objectName: "txt-toggle"
-            anchors.centerIn: parent
-            text: Theme.dark ? "Switch to light" : "Switch to dark"
-            color: Theme.onPrimary
-            font.pixelSize: 14
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: theme.toggleDark()
-        }
-    }
-
-    // ---- primary ----
-    Rectangle {
-        objectName: "swatch-primary"
-        x: 32
-        y: 96
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.primary
-
-        Text {
-            x: 16
-            y: 16
-            text: "primary"
-            color: Theme.onPrimary
-            font.pixelSize: 15
-            font.bold: true
+        Rectangle {
+            x: 0
+            width: 1
+            height: panel.height
+            color: Theme.outlineVariant
+            opacity: 0.6
         }
 
         Text {
-            x: 16
-            y: 44
-            text: Theme.primaryHex
-            color: Theme.onPrimary
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onPrimaryHex
-            color: Theme.onPrimary
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- primaryContainer ----
-    Rectangle {
-        objectName: "swatch-primaryContainer"
-        x: 264
-        y: 96
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.primaryContainer
-
-        Text {
-            x: 16
-            y: 16
-            text: "primaryContainer"
-            color: Theme.onPrimaryContainer
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.primaryContainerHex
-            color: Theme.onPrimaryContainer
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onPrimaryContainerHex
-            color: Theme.onPrimaryContainer
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- secondary ----
-    Rectangle {
-        objectName: "swatch-secondary"
-        x: 496
-        y: 96
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.secondary
-
-        Text {
-            x: 16
-            y: 16
-            text: "secondary"
-            color: Theme.onSecondary
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.secondaryHex
-            color: Theme.onSecondary
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onSecondaryHex
-            color: Theme.onSecondary
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- secondaryContainer ----
-    Rectangle {
-        objectName: "swatch-secondaryContainer"
-        x: 728
-        y: 96
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.secondaryContainer
-
-        Text {
-            x: 16
-            y: 16
-            text: "secondaryContainer"
-            color: Theme.onSecondaryContainer
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.secondaryContainerHex
-            color: Theme.onSecondaryContainer
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onSecondaryContainerHex
-            color: Theme.onSecondaryContainer
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- tertiary ----
-    Rectangle {
-        objectName: "swatch-tertiary"
-        x: 32
-        y: 210
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.tertiary
-
-        Text {
-            x: 16
-            y: 16
-            text: "tertiary"
-            color: Theme.onTertiary
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.tertiaryHex
-            color: Theme.onTertiary
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onTertiaryHex
-            color: Theme.onTertiary
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- tertiaryContainer ----
-    Rectangle {
-        objectName: "swatch-tertiaryContainer"
-        x: 264
-        y: 210
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.tertiaryContainer
-
-        Text {
-            x: 16
-            y: 16
-            text: "tertiaryContainer"
-            color: Theme.onTertiaryContainer
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.tertiaryContainerHex
-            color: Theme.onTertiaryContainer
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onTertiaryContainerHex
-            color: Theme.onTertiaryContainer
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- error ----
-    Rectangle {
-        objectName: "swatch-error"
-        x: 496
-        y: 210
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.error
-
-        Text {
-            x: 16
-            y: 16
-            text: "error"
-            color: Theme.onError
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.errorHex
-            color: Theme.onError
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onErrorHex
-            color: Theme.onError
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- errorContainer ----
-    Rectangle {
-        objectName: "swatch-errorContainer"
-        x: 728
-        y: 210
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.errorContainer
-
-        Text {
-            x: 16
-            y: 16
-            text: "errorContainer"
-            color: Theme.onErrorContainer
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.errorContainerHex
-            color: Theme.onErrorContainer
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onErrorContainerHex
-            color: Theme.onErrorContainer
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- surface ----
-    Rectangle {
-        objectName: "swatch-surface"
-        x: 32
-        y: 324
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.surface
-
-        Text {
-            x: 16
-            y: 16
-            text: "surface"
+            x: Theme.spaceL
+            y: Theme.spaceXl
+            text: "Details"
             color: Theme.onSurface
-            font.pixelSize: 15
+            font.pixelSize: Theme.typeTitleMedium
             font.bold: true
         }
 
         Text {
-            x: 16
-            y: 44
-            text: Theme.surfaceHex
-            color: Theme.onSurface
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onSurfaceHex
-            color: Theme.onSurface
-            font.pixelSize: 11
-        }
-    }
-
-    // ---- surfaceVariant ----
-    Rectangle {
-        objectName: "swatch-surfaceVariant"
-        x: 264
-        y: 324
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.surfaceVariant
-
-        Text {
-            x: 16
-            y: 16
-            text: "surfaceVariant"
+            x: Theme.spaceL
+            y: Theme.spaceXl + 30
+            width: panel.width - 2 * Theme.spaceL
+            text: "Contextual panel - plugin details, memory card preview, or token breakdown"
+                  + " depending on the selected page."
             color: Theme.onSurfaceVariant
-            font.pixelSize: 15
-            font.bold: true
+            font.pixelSize: Theme.typeBodySmall
+            wrapMode: Text.WordWrap
+        }
+
+        Rectangle {
+            x: Theme.spaceL
+            y: Theme.spaceXl + 96
+            width: panel.width - 2 * Theme.spaceL
+            height: 1
+            color: Theme.outlineVariant
         }
 
         Text {
-            x: 16
-            y: 44
-            text: Theme.surfaceVariantHex
+            x: Theme.spaceL
+            y: Theme.spaceXl + 112
+            text: "Stage 2 skeleton"
             color: Theme.onSurfaceVariant
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onSurfaceVariantHex
-            color: Theme.onSurfaceVariant
-            font.pixelSize: 11
+            font.pixelSize: Theme.typeLabelSmall
         }
     }
 
-    // ---- inverseSurface ----
-    Rectangle {
-        objectName: "swatch-inverseSurface"
-        x: 496
-        y: 324
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.inverseSurface
-
-        Text {
-            x: 16
-            y: 16
-            text: "inverseSurface"
-            color: Theme.inverseOnSurface
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.inverseSurfaceHex
-            color: Theme.inverseOnSurface
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.inverseOnSurfaceHex
-            color: Theme.inverseOnSurface
-            font.pixelSize: 11
-        }
+    // ------------------------------------------------------------------
+    // toast overlay (no Popup layer exists in qml4j)
+    // ------------------------------------------------------------------
+    M3Toast {
+        id: toast
+        x: (root.width - width) / 2
+        y: root.height - height - Theme.spaceXl
     }
 
-    // ---- surfaceContainerHighest ----
-    Rectangle {
-        objectName: "swatch-surfaceContainerHighest"
-        x: 728
-        y: 324
-        width: 222
-        height: 104
-        radius: 16
-        border.width: 1
-        border.color: Theme.outlineVariant
-        color: Theme.surfaceContainerHighest
+    // ------------------------------------------------------------------
+    // Hidden in-process probes.
+    //
+    // The host theme proof looks up Rectangles named "swatch-<role>" and reads
+    // their resolved color after a toggle, so this verifies that a scheme flip
+    // really re-runs the QML bindings - independent of window capture.
+    // ------------------------------------------------------------------
+    Item {
+        visible: false
+        width: 1
+        height: 1
 
-        Text {
-            x: 16
-            y: 16
-            text: "surfaceContainerHighest"
-            color: Theme.onSurfaceVariant
-            font.pixelSize: 15
-            font.bold: true
-        }
-
-        Text {
-            x: 16
-            y: 44
-            text: Theme.surfaceContainerHighestHex
-            color: Theme.onSurfaceVariant
-            font.pixelSize: 12
-        }
-
-        Text {
-            x: 16
-            y: 70
-            text: "on: " + Theme.onSurfaceVariantHex
-            color: Theme.onSurfaceVariant
-            font.pixelSize: 11
-        }
-    }
-
-    Text {
-        x: 32
-        y: 452
-        text: "Motion tokens - MD3E springs (Theme.spring.*)"
-        color: Theme.onBackground
-        font.pixelSize: 16
-        font.bold: true
-    }
-
-    Text {
-        objectName: "spring-fastSpatial"
-        x: 32
-        y: 478
-        text: Theme.spring.fastSpatial
-        color: Theme.onSurface
-        font.pixelSize: 13
-    }
-
-    Text {
-        objectName: "spring-defaultSpatial"
-        x: 32
-        y: 496
-        text: Theme.spring.defaultSpatial
-        color: Theme.onSurface
-        font.pixelSize: 13
-    }
-
-    Text {
-        objectName: "spring-slowSpatial"
-        x: 32
-        y: 514
-        text: Theme.spring.slowSpatial
-        color: Theme.onSurface
-        font.pixelSize: 13
-    }
-
-    Text {
-        objectName: "spring-fastEffects"
-        x: 32
-        y: 532
-        text: Theme.spring.fastEffects
-        color: Theme.onSurface
-        font.pixelSize: 13
-    }
-
-    Text {
-        objectName: "spring-defaultEffects"
-        x: 32
-        y: 550
-        text: Theme.spring.defaultEffects
-        color: Theme.onSurface
-        font.pixelSize: 13
-    }
-
-    Text {
-        objectName: "spring-slowEffects"
-        x: 32
-        y: 568
-        text: Theme.spring.slowEffects
-        color: Theme.onSurface
-        font.pixelSize: 13
-    }
-
-    Text {
-        x: 32
-        y: 610
-        text: "standard scheme (no overshoot): " + Theme.spring.standardFastSpatial
-        color: Theme.onSurfaceVariant
-        font.pixelSize: 12
-    }
-
-    Text {
-        x: 32
-        y: 636
-        text: "Click the pill to flip light/dark. Every color above is a binding onto Theme."
-        color: Theme.outline
-        font.pixelSize: 12
+        Rectangle { objectName: "swatch-primary"; width: 1; height: 1; color: Theme.primary }
+        Rectangle { objectName: "swatch-secondary"; width: 1; height: 1; color: Theme.secondary }
+        Rectangle { objectName: "swatch-surface"; width: 1; height: 1; color: Theme.surface }
+        Rectangle { objectName: "swatch-onSurface"; width: 1; height: 1; color: Theme.onSurface }
+        Rectangle { objectName: "swatch-secondaryContainer"; width: 1; height: 1; color: Theme.secondaryContainer }
+        Rectangle { objectName: "swatch-surfaceContainerHighest"; width: 1; height: 1; color: Theme.surfaceContainerHighest }
     }
 }

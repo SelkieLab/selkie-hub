@@ -25,13 +25,31 @@ bytecode → Skia). Design system: **Material Design 3 Expressive (MD3E)**.
 ## Layout
 
 ```text
-host/src/main/java/selkie/host/     entry point: GLFW window + Skija surface + render loop
-host/src/main/java/selkie/theme/    MD3E: HCT color math, 48 roles, spring motion tokens
-host/src/test/java/                 unit tests
+host/src/main/java/selkie/host/     GLFW window, Skija surface, render loop, input dispatch,
+                                    host-driven springs (MotionBridge/SpringChannel)
+host/src/main/java/selkie/theme/    MD3E: HCT math, 48 roles, motion/shape/type/spacing tokens
+host/src/test/java/                 unit tests (theme + headless QML reactivity)
 qml/                                all UI; this directory is a Gradle resources root,
                                     so qml/main.qml is the classpath resource "main.qml"
+  main.qml                          three-pane shell (rail | page + top bar | details)
+  Theme.qml + qmldir                MD3E token singleton (delegation only)
+  NavigationRail.qml / TopBar.qml   shell chrome (flat, see the import rule below)
+  components/                       M3Card, M3Switch, M3Button, M3TextField, M3Tabs, M3Toast
+  demo-theme.qml                    Stage 1 theme proof page (48 roles, light/dark)
+  preview-components.qml            Stage 2 component gallery
 docs/                               engine constraints + API recon notes
 ```
+
+### Two engine rules that shape the file layout
+
+1. **Only `import "."` resolves the `Theme` singleton.** A file in a subdirectory that
+   writes `import ".."` can load when a parent imports it first, but fails on eager
+   property initialisers with `unknown identifier: Theme`. That is why the shell chrome
+   lives flat next to `Theme.qml` while `components/` (only ever instantiated from
+   `main.qml`) may stay nested.
+2. **Springs are host objects, not QML types.** `motion.channel(token)` returns a *new*
+   independent channel per call; a component must take it once into a `property var` and
+   bind to `.value`. Sharing one channel between widgets makes them fight.
 
 ## Run
 
@@ -49,7 +67,7 @@ Useful flags: `--dark`, `--seed=0xAARRGGBB`, `--toggle-after=<ms>`,
 |---|---|---|
 | 0 | Repo + project skeleton | **done** — real window renders |
 | 1 | Design system / theme generation | **done** — 48 MD3E roles from a seed + 6 spring tokens, reachable from QML, runtime dark toggle |
-| 2 | Core components + 3-pane layout | next |
+| 2 | Core components + 3-pane layout | **done** — 6 components, rail + top bar + details pane, real pointer input, host-driven springs, narrow-screen collapse |
 | 3 | Page skeletons + navigation | — |
 | 4 | Data bridges / real data | — |
 | 5 | Motion, responsive, polish | — |

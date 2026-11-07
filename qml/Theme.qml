@@ -153,4 +153,42 @@ QtObject {
         property string standardDefaultEffects: theme.spring.standardDefaultEffects
         property string standardSlowEffects: theme.spring.standardSlowEffects
     }
+
+    // ---- MD3E shape tokens: corner radius in px (ShapeTokens.java, design-tokens.md §3) ----
+    // shapeNone 0 (square), shapeXs 4, shapeS 8, shapeM 12, shapeL 16, shapeXl 28, shapeFull 999.
+    // shapeFull is the pill/circle sentinel, not an MD3E radius: clamp it for real widgets with
+    // Math.min(Theme.shapeFull, Math.min(w, h) / 2) so a Rectangle never gets radius > half its side.
+    property real shapeNone: theme.shapeNone
+    property real shapeXs: theme.shapeXs
+    property real shapeS: theme.shapeS
+    property real shapeM: theme.shapeM
+    property real shapeL: theme.shapeL
+    property real shapeXl: theme.shapeXl
+    property real shapeFull: theme.shapeFull
+
+    // ---- MD3E spacing tokens: px on the 4dp grid (SpacingTokens.java) ----
+    property real spaceXs: theme.spaceXs
+    property real spaceS: theme.spaceS
+    property real spaceM: theme.spaceM
+    property real spaceL: theme.spaceL
+    property real spaceXl: theme.spaceXl
+    property real spaceXxl: theme.spaceXxl
+
+    // ---- MD3E typography tokens: font size in px, 1sp == 1px (TypographyTokens.java) ----
+    // Full metrics (line height, weight, letter spacing) stay host-side; QML gets the size.
+    property real typeDisplayLarge: theme.typeDisplayLarge
+    property real typeDisplayMedium: theme.typeDisplayMedium
+    property real typeDisplaySmall: theme.typeDisplaySmall
+    property real typeHeadlineLarge: theme.typeHeadlineLarge
+    property real typeHeadlineMedium: theme.typeHeadlineMedium
+    property real typeHeadlineSmall: theme.typeHeadlineSmall
+    property real typeTitleLarge: theme.typeTitleLarge
+    property real typeTitleMedium: theme.typeTitleMedium
+    property real typeTitleSmall: theme.typeTitleSmall
+    property real typeBodyLarge: theme.typeBodyLarge
+    property real typeBodyMedium: theme.typeBodyMedium
+    property real typeBodySmall: theme.typeBodySmall
+    property real typeLabelLarge: theme.typeLabelLarge
+    property real typeLabelMedium: theme.typeLabelMedium
+    property real typeLabelSmall: theme.typeLabelSmall
 }

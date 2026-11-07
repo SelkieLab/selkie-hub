@@ -139,6 +139,31 @@ public class ThemeTest {
     }
 
     @Test
+    public void shapeTokensMatchContract() {
+        verifyShapeTokens();
+    }
+
+    @Test
+    public void spacingTokensMatchContract() {
+        verifySpacingTokens();
+    }
+
+    @Test
+    public void typographyTokensMatchContract() {
+        verifyTypographyTokens();
+    }
+
+    @Test
+    public void themeQmlDelegatesEveryToken() {
+        verifyThemeQmlContract();
+    }
+
+    @Test
+    public void themeBridgeExposesEveryToken() {
+        verifyThemeBridgeContract();
+    }
+
+    @Test
     public void motionTokensMatchMd3eMotionScheme() {
         verifyMotionTokens();
     }
@@ -428,6 +453,297 @@ public class ThemeTest {
         }
     }
 
+    // ==================================================================
+    // Stage 2: shape / spacing / typography token contracts
+    // ==================================================================
+
+    /** Lead-fixed shape contract: token -> corner radius px. */
+    private static final Map<String, Integer> CONTRACT_SHAPE = new LinkedHashMap<>();
+    /** Lead-fixed spacing contract: token -> px (4dp grid). */
+    private static final Map<String, Integer> CONTRACT_SPACE = new LinkedHashMap<>();
+    /** Lead-fixed typography contract: token -> font size px. */
+    private static final Map<String, Integer> CONTRACT_TYPE = new LinkedHashMap<>();
+
+    static {
+        CONTRACT_SHAPE.put("shapeNone", 0);
+        CONTRACT_SHAPE.put("shapeXs", 4);
+        CONTRACT_SHAPE.put("shapeS", 8);
+        CONTRACT_SHAPE.put("shapeM", 12);
+        CONTRACT_SHAPE.put("shapeL", 16);
+        CONTRACT_SHAPE.put("shapeXl", 28);
+        CONTRACT_SHAPE.put("shapeFull", 999);
+
+        CONTRACT_SPACE.put("spaceXs", 4);
+        CONTRACT_SPACE.put("spaceS", 8);
+        CONTRACT_SPACE.put("spaceM", 12);
+        CONTRACT_SPACE.put("spaceL", 16);
+        CONTRACT_SPACE.put("spaceXl", 24);
+        CONTRACT_SPACE.put("spaceXxl", 32);
+
+        CONTRACT_TYPE.put("typeDisplayLarge", 57);
+        CONTRACT_TYPE.put("typeDisplayMedium", 45);
+        CONTRACT_TYPE.put("typeDisplaySmall", 36);
+        CONTRACT_TYPE.put("typeHeadlineLarge", 32);
+        CONTRACT_TYPE.put("typeHeadlineMedium", 28);
+        CONTRACT_TYPE.put("typeHeadlineSmall", 24);
+        CONTRACT_TYPE.put("typeTitleLarge", 22);
+        CONTRACT_TYPE.put("typeTitleMedium", 16);
+        CONTRACT_TYPE.put("typeTitleSmall", 14);
+        CONTRACT_TYPE.put("typeBodyLarge", 16);
+        CONTRACT_TYPE.put("typeBodyMedium", 14);
+        CONTRACT_TYPE.put("typeBodySmall", 12);
+        CONTRACT_TYPE.put("typeLabelLarge", 14);
+        CONTRACT_TYPE.put("typeLabelMedium", 12);
+        CONTRACT_TYPE.put("typeLabelSmall", 11);
+    }
+
+    static void verifyShapeTokens() {
+        checkMapEquals(CONTRACT_SHAPE, ShapeTokens.tokens(), "shape contract");
+        checkEquals(7, ShapeTokens.CONTRACT_COUNT, "shape token count");
+
+        // The MD3E scale itself (design-tokens.md section 3), including the M3E-only sizes.
+        Map<String, Integer> scale = ShapeTokens.md3eScale();
+        checkEquals(8, scale.size(), "MD3E shape scale has 8 sizes");
+        checkEquals(4, scale.get("extraSmall").intValue(), "extraSmall");
+        checkEquals(8, scale.get("small").intValue(), "small");
+        checkEquals(12, scale.get("medium").intValue(), "medium");
+        checkEquals(16, scale.get("large").intValue(), "large");
+        checkEquals(20, scale.get("largeIncreased").intValue(), "largeIncreased");
+        checkEquals(28, scale.get("extraLarge").intValue(), "extraLarge");
+        checkEquals(32, scale.get("extraLargeIncreased").intValue(), "extraLargeIncreased");
+        checkEquals(48, scale.get("extraExtraLarge").intValue(), "extraExtraLarge");
+
+        // Real radii ascend and sit on the 4px grid; shapeFull is a sentinel, not a radius.
+        int previous = -1;
+        for (Map.Entry<String, Integer> entry : CONTRACT_SHAPE.entrySet()) {
+            if (entry.getKey().equals("shapeFull")) {
+                continue;
+            }
+            int radius = entry.getValue();
+            check(radius > previous, "shape tokens must ascend: " + entry.getKey());
+            check(radius % 4 == 0, "shape radius on the 4px grid: " + entry.getKey());
+            previous = radius;
+        }
+
+        // shapeFull must be large enough that no widget in this app gets clipped corners.
+        check(ShapeTokens.RADIUS_FULL >= 400, "shapeFull must exceed twice any realistic widget side");
+        check(ShapeTokens.isFull(ShapeTokens.RADIUS_FULL), "shapeFull must read as the pill sentinel");
+        check(!ShapeTokens.isFull(ShapeTokens.RADIUS_EXTRA_LARGE), "shapeXl is a real radius");
+
+        // resolve(): sentinel -> half the shorter side, real radius -> itself.
+        checkApprox(20.0, ShapeTokens.resolve(ShapeTokens.RADIUS_FULL, 200, 40), 1e-9,
+                "shapeFull on a 40px tall widget becomes a pill");
+        checkApprox(12.0, ShapeTokens.resolve(ShapeTokens.RADIUS_MEDIUM, 200, 40), 1e-9,
+                "real radii pass through when they fit");
+        checkApprox(6.0, ShapeTokens.resolve(ShapeTokens.RADIUS_MEDIUM, 200, 12), 1e-9,
+                "real radii clamp to half the shorter side");
+        checkApprox(999.0, ShapeTokens.radius("shapeFull"), 1e-9, "radius(name) lookup");
+        try {
+            ShapeTokens.radius("shapeHuge");
+            throw new AssertionError("unknown shape token must fail");
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
+
+    static void verifySpacingTokens() {
+        checkMapEquals(CONTRACT_SPACE, SpacingTokens.tokens(), "spacing contract");
+        checkEquals(6, SpacingTokens.CONTRACT_COUNT, "spacing token count");
+        checkEquals(16, SpacingTokens.px("spaceL"), "16dp is the standard content padding");
+        checkEquals(4, SpacingTokens.GRID, "4dp baseline grid");
+
+        int previous = 0;
+        for (Map.Entry<String, Integer> entry : CONTRACT_SPACE.entrySet()) {
+            int px = entry.getValue();
+            check(px > previous, "spacing tokens must strictly ascend: " + entry.getKey());
+            check(px % SpacingTokens.GRID == 0, "spacing on the 4dp grid: " + entry.getKey());
+            previous = px;
+        }
+        try {
+            SpacingTokens.px("spaceHuge");
+            throw new AssertionError("unknown spacing token must fail");
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
+
+    static void verifyTypographyTokens() {
+        Map<String, TypographyTokens.TypeStyle> styles = TypographyTokens.styles();
+        checkEquals(15, styles.size(), "MD3E has 15 base type styles");
+        checkEquals(15, TypographyTokens.CONTRACT_COUNT, "typography token count");
+        check(new ArrayList<>(CONTRACT_TYPE.keySet()).equals(new ArrayList<>(styles.keySet())),
+                "typography contract names/order: expected " + CONTRACT_TYPE.keySet()
+                        + " but got " + styles.keySet());
+
+        for (Map.Entry<String, Integer> entry : CONTRACT_TYPE.entrySet()) {
+            TypographyTokens.TypeStyle style = styles.get(entry.getKey());
+            check(style != null, "missing type style " + entry.getKey());
+            checkApprox(entry.getValue(), style.sizePx(), 1e-9, "font size of " + entry.getKey());
+            check(style.lineHeightPx() >= style.sizePx(),
+                    "line height must be >= font size: " + entry.getKey());
+            check(style.weight() == 400 || style.weight() == 500,
+                    "MD3E base styles use regular(400) or medium(500): " + entry.getKey());
+        }
+
+        // Sizes decrease inside each family, and families descend display > headline > title > body.
+        String[][] families = {
+            {"typeDisplayLarge", "typeDisplayMedium", "typeDisplaySmall"},
+            {"typeHeadlineLarge", "typeHeadlineMedium", "typeHeadlineSmall"},
+            {"typeTitleLarge", "typeTitleMedium", "typeTitleSmall"},
+            {"typeBodyLarge", "typeBodyMedium", "typeBodySmall"},
+            {"typeLabelLarge", "typeLabelMedium", "typeLabelSmall"}
+        };
+        for (String[] family : families) {
+            double previous = Double.MAX_VALUE;
+            for (String name : family) {
+                double size = TypographyTokens.sizePx(name);
+                check(size < previous, "type sizes must descend within a family: " + name);
+                previous = size;
+            }
+        }
+        check(TypographyTokens.sizePx("typeDisplayLarge") > TypographyTokens.sizePx("typeHeadlineLarge"),
+                "display outranks headline");
+        check(TypographyTokens.sizePx("typeHeadlineSmall") > TypographyTokens.sizePx("typeTitleLarge"),
+                "headline outranks title");
+
+        // Weights from the MD3E table: titles/labels are medium, display/headline/body regular.
+        check(TypographyTokens.TITLE_LARGE.weight() == 500, "titleLarge is medium");
+        check(TypographyTokens.LABEL_LARGE.weight() == 500, "labelLarge is medium (button text)");
+        check(TypographyTokens.BODY_MEDIUM.weight() == 400, "bodyMedium is regular");
+        checkApprox(0.5, TypographyTokens.BODY_LARGE.letterSpacingPx(), 1e-9, "bodyLarge tracking");
+        checkApprox(-0.25, TypographyTokens.DISPLAY_LARGE.letterSpacingPx(), 1e-9, "displayLarge tracking");
+        checkApprox(64.0, TypographyTokens.DISPLAY_LARGE.lineHeightPx(), 1e-9, "displayLarge line height");
+
+        try {
+            TypographyTokens.sizePx("typeHuge");
+            throw new AssertionError("unknown typography token must fail");
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
+
+    /**
+     * Guard the QML half of the contract: every frozen name is delegated in qml/Theme.qml, the
+     * 48 role names and six spring tokens are still there (main.qml depends on them), and the
+     * file contains no literal colors.
+     */
+    static void verifyThemeQmlContract() {
+        java.nio.file.Path path = locateThemeQml();
+        if (path == null) {
+            System.out.println("  (skipped Theme.qml contract: qml/Theme.qml not found from "
+                    + System.getProperty("user.dir") + ")");
+            return;
+        }
+        String qml;
+        try {
+            qml = java.nio.file.Files.readString(path, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            throw new AssertionError("cannot read " + path + ": " + e);
+        }
+        check(qml.contains("pragma Singleton"), "Theme.qml must stay a pragma Singleton");
+        // Comments may mention "#RRGGBB" as documentation; real code must never carry a literal.
+        String code = qml.lines()
+                .filter(line -> !line.trim().startsWith("//"))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        check(!code.contains("\"#"), "Theme.qml must delegate colors, never hardcode a hex literal");
+
+        for (String role : ColorScheme.roleNames()) {
+            contains(qml, "property color " + role + ": theme." + role + "Hex", "color delegation " + role);
+            contains(qml, "property string " + role + "Hex: theme." + role + "Hex",
+                    "hex delegation " + role);
+        }
+        for (String state : new String[] {
+            "property bool dark: theme.dark",
+            "property string seedHex: theme.seedHex",
+            "property int roleCount: theme.roleCount"
+        }) {
+            contains(qml, state, "scheme state: " + state);
+        }
+        for (String name : CONTRACT_SHAPE.keySet()) {
+            contains(qml, "property real " + name + ": theme." + name, "shape token " + name);
+        }
+        for (String name : CONTRACT_SPACE.keySet()) {
+            contains(qml, "property real " + name + ": theme." + name, "spacing token " + name);
+        }
+        for (String name : CONTRACT_TYPE.keySet()) {
+            contains(qml, "property real " + name + ": theme." + name, "type token " + name);
+        }
+        for (String spring : new String[] {
+            "fastSpatial", "defaultSpatial", "slowSpatial", "fastEffects", "defaultEffects", "slowEffects"
+        }) {
+            contains(qml, "property string " + spring + ": theme.spring." + spring, "spring token " + spring);
+        }
+        System.out.println("  Theme.qml: 48 roleHex + 6 springs + 7 shape + 6 space + 15 type delegations present");
+    }
+
+    /**
+     * Guard the Java half of the contract: every frozen name is a public numeric property on
+     * ThemeBridge with the contract value. Uses reflection only, so this test file does not need
+     * qml4j on the compile classpath; it skips itself when qml4j is absent.
+     */
+    static void verifyThemeBridgeContract() {
+        Object bridge;
+        try {
+            Class<?> type = Class.forName("selkie.theme.ThemeBridge");
+            bridge = type.getDeclaredConstructor().newInstance();
+        } catch (Throwable unavailable) {
+            System.out.println("  (skipped ThemeBridge contract: qml4j runtime not on classpath - "
+                    + unavailable.getClass().getSimpleName() + ")");
+            return;
+        }
+        verifyBridgeFields(bridge, CONTRACT_SHAPE);
+        verifyBridgeFields(bridge, CONTRACT_SPACE);
+        verifyBridgeFields(bridge, CONTRACT_TYPE);
+        System.out.println("  ThemeBridge: 7 shape + 6 space + 15 type properties match the contract");
+    }
+
+    private static void verifyBridgeFields(Object bridge, Map<String, Integer> expected) {
+        for (Map.Entry<String, Integer> entry : expected.entrySet()) {
+            java.lang.reflect.Field field;
+            try {
+                field = bridge.getClass().getField(entry.getKey());
+            } catch (NoSuchFieldException missing) {
+                throw new AssertionError("ThemeBridge is missing public field " + entry.getKey());
+            }
+            Object property;
+            try {
+                property = field.get(bridge);
+            } catch (IllegalAccessException e) {
+                throw new AssertionError("ThemeBridge." + entry.getKey() + " not accessible: " + e);
+            }
+            check(property != null, "null property " + entry.getKey());
+            double actual = ((Number) readPropertyValue(property)).doubleValue();
+            checkApprox(entry.getValue(), actual, 1e-9,
+                    "ThemeBridge." + entry.getKey() + " must be " + entry.getValue());
+        }
+    }
+
+    private static Object readPropertyValue(Object property) {
+        for (String method : new String[] {"peek", "get"}) {
+            try {
+                return property.getClass().getMethod(method).invoke(property);
+            } catch (NoSuchMethodException ignored) {
+                // try the next accessor
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError("cannot read property value: " + e);
+            }
+        }
+        throw new AssertionError("property object has neither peek() nor get()");
+    }
+
+    private static java.nio.file.Path locateThemeQml() {
+        java.nio.file.Path direct = java.nio.file.Path.of("qml", "Theme.qml").toAbsolutePath();
+        if (java.nio.file.Files.isRegularFile(direct)) {
+            return direct;
+        }
+        java.nio.file.Path fromRoot = java.nio.file.Path.of("..", "qml", "Theme.qml").toAbsolutePath();
+        return java.nio.file.Files.isRegularFile(fromRoot) ? fromRoot : null;
+    }
+
+    private static void contains(String haystack, String needle, String label) {
+        check(haystack.contains(needle), "Theme.qml is missing " + label + " (expected: " + needle + ")");
+    }
+
     static void verifyMotionTokens() {
         Map<String, MotionTokens.SpringSpec> tokens = MotionTokens.tokens();
         checkEquals(6, tokens.size(), "MD3E motion scheme has exactly six springs");
@@ -538,6 +854,13 @@ public class ThemeTest {
         }
     }
 
+    private static void checkMapEquals(Map<String, Integer> expected, Map<String, Integer> actual,
+            String label) {
+        if (!expected.equals(actual)) {
+            throw new AssertionError(label + ": expected " + expected + " but was " + actual);
+        }
+    }
+
     private static void checkApprox(double expected, double actual, double delta, String message) {
         if (Math.abs(expected - actual) > delta) {
             throw new AssertionError(message + ": expected " + expected + " +/- " + delta
@@ -586,6 +909,14 @@ public class ThemeTest {
         checks.add(ThemeTest::verifyPalettes);
         labels.add("published M3 baseline palette");
         checks.add(ThemeTest::verifyPublishedBaseline);
+        labels.add("shape tokens match contract");
+        checks.add(ThemeTest::verifyShapeTokens);
+        labels.add("spacing tokens match contract");
+        checks.add(ThemeTest::verifySpacingTokens);
+        labels.add("typography tokens match contract");
+        checks.add(ThemeTest::verifyTypographyTokens);
+        labels.add("Theme.qml delegates every token");
+        checks.add(ThemeTest::verifyThemeQmlContract);
         labels.add("motion tokens (six springs)");
         checks.add(ThemeTest::verifyMotionTokens);
         checks.add(ThemeTest::verifyEffectsNeverOvershoot);

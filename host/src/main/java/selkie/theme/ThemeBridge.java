@@ -152,6 +152,53 @@ public final class ThemeBridge extends QObject {
     /** The six MD3E spring tokens, read from QML as {@code Theme.spring.*}. */
     public final SpringBridge spring = new SpringBridge();
 
+    // ------------------------------------------------------------------
+    // MD3E shape tokens (Stage 2) - corner radii in px
+    // ------------------------------------------------------------------
+    // Frozen QML names: shapeNone..shapeFull. Values come from ShapeTokens; a component
+    // writes radius: Theme.shapeM and never a literal. Property<Double> (not a constant)
+    // so a future UI-scale setting can rescale every radius in one place.
+
+    public final Property<Double> shapeNone = num(ShapeTokens.RADIUS_NONE);
+    public final Property<Double> shapeXs = num(ShapeTokens.RADIUS_EXTRA_SMALL);
+    public final Property<Double> shapeS = num(ShapeTokens.RADIUS_SMALL);
+    public final Property<Double> shapeM = num(ShapeTokens.RADIUS_MEDIUM);
+    public final Property<Double> shapeL = num(ShapeTokens.RADIUS_LARGE);
+    public final Property<Double> shapeXl = num(ShapeTokens.RADIUS_EXTRA_LARGE);
+    /** Pill/circle sentinel; components use ShapeTokens.resolve semantics (half the shorter side). */
+    public final Property<Double> shapeFull = num(ShapeTokens.RADIUS_FULL);
+
+    // ------------------------------------------------------------------
+    // MD3E spacing tokens (Stage 2) - px, 4dp grid
+    // ------------------------------------------------------------------
+
+    public final Property<Double> spaceXs = num(SpacingTokens.XS);
+    public final Property<Double> spaceS = num(SpacingTokens.S);
+    public final Property<Double> spaceM = num(SpacingTokens.M);
+    public final Property<Double> spaceL = num(SpacingTokens.L);
+    public final Property<Double> spaceXl = num(SpacingTokens.XL);
+    public final Property<Double> spaceXxl = num(SpacingTokens.XXL);
+
+    // ------------------------------------------------------------------
+    // MD3E typography tokens (Stage 2) - font sizes in px (1sp == 1px)
+    // ------------------------------------------------------------------
+
+    public final Property<Double> typeDisplayLarge = num(TypographyTokens.DISPLAY_LARGE.sizePx());
+    public final Property<Double> typeDisplayMedium = num(TypographyTokens.DISPLAY_MEDIUM.sizePx());
+    public final Property<Double> typeDisplaySmall = num(TypographyTokens.DISPLAY_SMALL.sizePx());
+    public final Property<Double> typeHeadlineLarge = num(TypographyTokens.HEADLINE_LARGE.sizePx());
+    public final Property<Double> typeHeadlineMedium = num(TypographyTokens.HEADLINE_MEDIUM.sizePx());
+    public final Property<Double> typeHeadlineSmall = num(TypographyTokens.HEADLINE_SMALL.sizePx());
+    public final Property<Double> typeTitleLarge = num(TypographyTokens.TITLE_LARGE.sizePx());
+    public final Property<Double> typeTitleMedium = num(TypographyTokens.TITLE_MEDIUM.sizePx());
+    public final Property<Double> typeTitleSmall = num(TypographyTokens.TITLE_SMALL.sizePx());
+    public final Property<Double> typeBodyLarge = num(TypographyTokens.BODY_LARGE.sizePx());
+    public final Property<Double> typeBodyMedium = num(TypographyTokens.BODY_MEDIUM.sizePx());
+    public final Property<Double> typeBodySmall = num(TypographyTokens.BODY_SMALL.sizePx());
+    public final Property<Double> typeLabelLarge = num(TypographyTokens.LABEL_LARGE.sizePx());
+    public final Property<Double> typeLabelMedium = num(TypographyTokens.LABEL_MEDIUM.sizePx());
+    public final Property<Double> typeLabelSmall = num(TypographyTokens.LABEL_SMALL.sizePx());
+
     private final Map<String, Property<Integer>> argbByName = new LinkedHashMap<>();
     private final Map<String, Property<String>> hexByName = new LinkedHashMap<>();
 
@@ -281,6 +328,11 @@ public final class ThemeBridge extends QObject {
         Property<String> property = hexByName.get(name);
         if (property == null) throw new IllegalArgumentException("Unknown MD3E role: " + name);
         return property;
+    }
+
+    /** Numeric token property. Kept as Property (not a plain field) so a UI scale can retune it. */
+    private static Property<Double> num(double value) {
+        return new Property<>(value);
     }
 
     private void register(String name, Property<Integer> argb, Property<String> hex) {
