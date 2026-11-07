@@ -68,7 +68,7 @@ Useful flags: `--dark`, `--seed=0xAARRGGBB`, `--toggle-after=<ms>`,
 | 0 | Repo + project skeleton | **done** — real window renders |
 | 1 | Design system / theme generation | **done** — 48 MD3E roles from a seed + 6 spring tokens, reachable from QML, runtime dark toggle |
 | 2 | Core components + 3-pane layout | **done** — 6 components, rail + top bar + details pane, real pointer input, host-driven springs, narrow-screen collapse |
-| 3 | Page skeletons + navigation | — |
+| 3 | Page skeletons + navigation | **done** — six pages, rail drives them, seed picker re-seeds live |
 | 4 | Data bridges / real data | — |
 | 5 | Motion, responsive, polish | — |
 | 6 | Packaging + performance | **at risk** — see below |
