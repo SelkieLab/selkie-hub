@@ -79,7 +79,12 @@ try {
         '--main-class', 'selkie.host.Main',
         '--dest', (Join-Path $repo 'build\package'),
         '--runtime-image', $runtime,
-        '--java-options', '-Xmx256m',
+        # Tuned for a small idle footprint on a desktop app: a fixed small initial heap
+        # (no opportunistic growth), a capped metaspace, single-threaded GC and C1-only
+        # JIT. Measured effect vs the JVM defaults is in docs/packaging.md.
+        '--java-options', '-Xms16m',
+        '--java-options', '-Xmx160m',
+        '--java-options', '-XX:MaxMetaspaceSize=96m',
         '--java-options', '-XX:+UseSerialGC',
         '--java-options', '-XX:TieredStopAtLevel=1',
         '--win-console'
