@@ -104,6 +104,8 @@ Rectangle {
 
             delegate: Item {
                 id: row
+                // Deterministic handle for scripted acceptance: --click-item=nav-3.
+                objectName: "nav-" + index
                 width: list.width
                 height: rail.destinationHeight
                 y: index * rail.rowPitch

@@ -1,16 +1,20 @@
 import QtQuick 2.15
 import "."
 import "components"
+import "pages"
 
-// Selkie Hub - Stage 2 shell.
+// Selkie Hub - Stage 3 shell.
 //
-// Three-pane layout: NavigationRail (left) | page area with TopBar (centre) | detail
-// panel (right). The rail collapses to icons below 600px and the detail panel folds
-// away below 1000px, so the same tree serves mouse and narrow windows.
+// Three panes: NavigationRail (left) | TopBar + page (centre) | details panel (right).
+// The rail collapses to icons below 600px and the details panel folds away below 1100px,
+// so one tree serves both a desktop window and a narrow one.
+//
+// Page content lives in qml/pages/*Page.qml. The shell owns geometry (each page is given
+// x/y/width/height and shown by index) and the TopBar owns the page title, so pages never
+// repeat their own name as a heading.
 //
 // Every colour, radius, font size and spring parameter comes from the Theme singleton;
-// this file only decides geometry. Nothing here creates a window - the host owns the
-// GLFW window, the Skija surface and the render loop.
+// this file only decides geometry. The window itself belongs to the host.
 Rectangle {
     id: root
 
@@ -18,7 +22,6 @@ Rectangle {
     height: 780
     color: Theme.surface
 
-    // ---- responsive thresholds (MD3E window size classes) ----
     readonly property bool railCollapsed: width < 600
     readonly property bool panelVisible: width >= 1100
     readonly property real panelWidth: panelVisible ? 300 : 0
@@ -87,332 +90,58 @@ Rectangle {
         }
 
         Item {
-            id: pages
+            id: pageHost
             x: 0
             y: topBar.height
             width: centre.width
             height: centre.height - topBar.height
 
-            // ---------------- page 0: component demo (Stage 2 acceptance) ----------------
-            Item {
-                id: dashboardPage
+            DashboardPage {
                 x: 0
                 y: 0
-                width: pages.width
-                height: pages.height
+                width: pageHost.width
+                height: pageHost.height
                 visible: root.currentPage === 0
-
-                M3Card {
-                    id: componentsCard
-                    x: Theme.spaceXl
-                    y: Theme.spaceXl
-                    width: Math.min(720, pages.width - 2 * Theme.spaceXl)
-                    height: 330
-                    variant: "elevated"
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "MD3E components"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleMedium
-                        font.bold: true
-                    }
-
-                    Text {
-                        x: 0
-                        y: 26
-                        width: componentsCard.width - 2 * componentsCard.padding
-                        text: "Live children of the theme: flip light/dark in the top bar and every"
-                              + " surface below repaints without reloading."
-                        color: Theme.onSurfaceVariant
-                        font.pixelSize: Theme.typeBodySmall
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // switch row
-                    Text {
-                        x: 0
-                        y: 72
-                        text: "Spring switch"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeLabelLarge
-                    }
-
-                    M3Switch {
-                        id: demoSwitch
-                        x: 150
-                        y: 66
-                        checked: true
-                        onToggled: toast.show("Switch is now " + (checked ? "on" : "off"))
-                    }
-
-                    // tabs row
-                    M3Tabs {
-                        id: demoTabs
-                        x: 0
-                        y: 128
-                        width: Math.min(420, componentsCard.width - 2 * componentsCard.padding)
-                        labels: ["Overview", "Activity", "Storage"]
-                        currentIndex: 0
-                        onTabSelected: toast.show("Tab " + index + " selected")
-                    }
-
-                    // button row: a Row positioner flows them, so no fixed x can clip
-                    Row {
-                        x: 0
-                        y: 208
-                        spacing: Theme.spaceS
-
-                        M3Button {
-                            id: btnFilled
-                            text: "Filled"
-                            onClicked: toast.show("Filled pressed")
-                        }
-
-                        M3Button {
-                            text: "Tonal"
-                            variant: "tonal"
-                            onClicked: toast.show("Tonal pressed")
-                        }
-
-                        M3Button {
-                            text: "Outlined"
-                            variant: "outlined"
-                            onClicked: toast.show("Outlined pressed")
-                        }
-
-                        M3Button {
-                            text: "Text"
-                            variant: "text"
-                            onClicked: toast.show("Text pressed")
-                        }
-                    }
-                }
-
-                M3Card {
-                    id: formCard
-                    x: Theme.spaceXl
-                    y: componentsCard.y + componentsCard.height + Theme.spaceL
-                    width: componentsCard.width
-                    height: 220
-                    variant: "filled"
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "Toast + text field"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleSmall
-                        font.bold: true
-                    }
-
-                    M3TextField {
-                        id: demoField
-                        x: 0
-                        y: 36
-                        width: Math.min(340, formCard.width - 2 * formCard.padding)
-                        label: "Display name"
-                        placeholder: "Selkie"
-                    }
-
-                    M3Button {
-                        id: btnToast
-                        x: 0
-                        y: 140
-                        text: "Show toast"
-                        variant: "tonal"
-                        onClicked: toast.show("Saved " + (demoField.text.length > 0 ? demoField.text : "settings"))
-                    }
-                }
             }
 
-            // ---------------- pages 1..5: skeletons ----------------
-            Item {
+            PluginsPage {
                 x: 0
                 y: 0
-                width: pages.width
-                height: pages.height
+                width: pageHost.width
+                height: pageHost.height
                 visible: root.currentPage === 1
-
-                M3Card {
-                    x: Theme.spaceXl
-                    y: Theme.spaceXl
-                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
-                    height: 180
-                    variant: "outlined"
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "Plugins"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleMedium
-                        font.bold: true
-                    }
-
-                    Text {
-                        x: 0
-                        y: 34
-                        width: parent.width
-                        text: "Official and third-party plugin health lands here in Stage 4, fed by"
-                              + " PluginBridge. This is the Stage 2 skeleton."
-                        color: Theme.onSurfaceVariant
-                        font.pixelSize: Theme.typeBodyMedium
-                        wrapMode: Text.WordWrap
-                    }
-                }
             }
 
-            Item {
+            MemoryCardsPage {
                 x: 0
                 y: 0
-                width: pages.width
-                height: pages.height
+                width: pageHost.width
+                height: pageHost.height
                 visible: root.currentPage === 2
-
-                M3Card {
-                    x: Theme.spaceXl
-                    y: Theme.spaceXl
-                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
-                    height: 180
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "Memory cards"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleMedium
-                        font.bold: true
-                    }
-
-                    Text {
-                        x: 0
-                        y: 34
-                        width: parent.width
-                        text: "Card grid placeholder - the recall surface arrives in Stage 3/4."
-                        color: Theme.onSurfaceVariant
-                        font.pixelSize: Theme.typeBodyMedium
-                        wrapMode: Text.WordWrap
-                    }
-                }
             }
 
-            Item {
+            TokenPage {
                 x: 0
                 y: 0
-                width: pages.width
-                height: pages.height
+                width: pageHost.width
+                height: pageHost.height
                 visible: root.currentPage === 3
-
-                M3Card {
-                    x: Theme.spaceXl
-                    y: Theme.spaceXl
-                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
-                    height: 180
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "Tokens"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleMedium
-                        font.bold: true
-                    }
-
-                    Text {
-                        x: 0
-                        y: 34
-                        width: parent.width
-                        text: "Persona injection, memory recall, tool schema and history will be broken"
-                              + " out here from TokenBridge in Stage 4."
-                        color: Theme.onSurfaceVariant
-                        font.pixelSize: Theme.typeBodyMedium
-                        wrapMode: Text.WordWrap
-                    }
-                }
             }
 
-            Item {
+            SettingsPage {
                 x: 0
                 y: 0
-                width: pages.width
-                height: pages.height
+                width: pageHost.width
+                height: pageHost.height
                 visible: root.currentPage === 4
-
-                M3Card {
-                    x: Theme.spaceXl
-                    y: Theme.spaceXl
-                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
-                    height: 200
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "Settings"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleMedium
-                        font.bold: true
-                    }
-
-                    Text {
-                        x: 0
-                        y: 34
-                        text: "Dark mode"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeLabelLarge
-                    }
-
-                    M3Switch {
-                        x: 0
-                        y: 66
-                        checked: Theme.dark
-                        onToggled: theme.setDark(checked)
-                    }
-
-                    Text {
-                        x: 0
-                        y: 132
-                        text: "Seed colour picker and UI scale arrive in Stage 5."
-                        color: Theme.onSurfaceVariant
-                        font.pixelSize: Theme.typeBodySmall
-                    }
-                }
             }
 
-            Item {
+            OnboardingPage {
                 x: 0
                 y: 0
-                width: pages.width
-                height: pages.height
+                width: pageHost.width
+                height: pageHost.height
                 visible: root.currentPage === 5
-
-                M3Card {
-                    x: Theme.spaceXl
-                    y: Theme.spaceXl
-                    width: Math.min(560, pages.width - 2 * Theme.spaceXl)
-                    height: 180
-                    variant: "elevated"
-
-                    Text {
-                        x: 0
-                        y: 0
-                        text: "Onboarding"
-                        color: Theme.onSurface
-                        font.pixelSize: Theme.typeTitleMedium
-                        font.bold: true
-                    }
-
-                    Text {
-                        x: 0
-                        y: 34
-                        width: parent.width
-                        text: "First-run wizard placeholder."
-                        color: Theme.onSurfaceVariant
-                        font.pixelSize: Theme.typeBodyMedium
-                        wrapMode: Text.WordWrap
-                    }
-                }
             }
         }
     }
@@ -450,8 +179,8 @@ Rectangle {
             x: Theme.spaceL
             y: Theme.spaceXl + 30
             width: panel.width - 2 * Theme.spaceL
-            text: "Contextual panel - plugin details, memory card preview, or token breakdown"
-                  + " depending on the selected page."
+            text: "Contextual panel - plugin details, memory card preview, or the token breakdown"
+                  + " for the selected page."
             color: Theme.onSurfaceVariant
             font.pixelSize: Theme.typeBodySmall
             wrapMode: Text.WordWrap
@@ -468,7 +197,7 @@ Rectangle {
         Text {
             x: Theme.spaceL
             y: Theme.spaceXl + 112
-            text: "Stage 2 skeleton"
+            text: "Stage 3 skeleton"
             color: Theme.onSurfaceVariant
             font.pixelSize: Theme.typeLabelSmall
         }
@@ -486,9 +215,9 @@ Rectangle {
     // ------------------------------------------------------------------
     // Hidden in-process probes.
     //
-    // The host theme proof looks up Rectangles named "swatch-<role>" and reads
-    // their resolved color after a toggle, so this verifies that a scheme flip
-    // really re-runs the QML bindings - independent of window capture.
+    // The host theme proof looks up Rectangles named "swatch-<role>" and reads their
+    // resolved color after a toggle, so this verifies that a scheme flip really re-runs
+    // the QML bindings - independent of window capture.
     // ------------------------------------------------------------------
     Item {
         visible: false
