@@ -1,0 +1,26 @@
+# Build output
+build/
+out/
+bin/
+.gradle/
+*.class
+
+# Local data
+data/
+logs/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Native image scratch
+*.pdb
+*.dSYM/
