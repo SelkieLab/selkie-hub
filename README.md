@@ -71,15 +71,25 @@ Useful flags: `--dark`, `--seed=0xAARRGGBB`, `--toggle-after=<ms>`,
 | 3 | Page skeletons + navigation | **done** — six pages, rail drives them, seed picker re-seeds live |
 | 4 | Data bridges / real data | — |
 | 5 | Motion, responsive, polish | — |
-| 6 | Packaging + performance | **at risk** — see below |
+| 6 | Packaging + performance | **done, with revised targets** — jpackage app-image 63 MB / zip 49 MB (target met); cold start 4.8 s and idle 155 MB miss the original 0.5 s / 80 MB goals. See [docs/packaging.md](docs/packaging.md). |
 
 **Known engine gaps** (measured, see `docs/`): no `SpringAnimation` (motion must be
 host-driven), no Controls widget layer (no Popup/Menu/ScrollView/StackView), QML can
 only read **public fields** (not getters or record accessors), one `QmlEngine` per
 `QmlView`, and all QML work must happen on the render thread.
 
-**Packaging risk:** qml4j defines classes at runtime (`DynamicClassLoader`), which
-GraalVM Native Image's closed world does not allow. The reference project solves this
-by precompiling QML at build time (`qml-aot-tool`), which relies on non-public qml4j
-internals. Native Image is therefore not a "add reflection config" step; `jpackage`
-is the lower-risk fallback.
+**Packaging:** `scripts/package.ps1` builds a self-contained Windows app-image with a
+jlink-trimmed runtime (49 MB zip, no Java needed). Cold start is ~4.8 s and idle memory
+~155 MB — measured, with a per-phase breakdown in [docs/packaging.md](docs/packaging.md).
+Hitting the original 0.5 s / 80 MB would require GraalVM Native Image, and qml4j defines
+classes at runtime (`DynamicClassLoader`), which a closed-world native image cannot host
+unless every scene is precompiled at build time. That is a separate subproject, not a
+config change.
+
+## Run
+
+```bash
+./gradlew run                     # JVM dev run
+./gradlew run --args="--dev-backend=7071"   # with the local dev backend
+powershell -File scripts/package.ps1        # self-contained Windows build
+```

@@ -130,6 +130,9 @@ public final class Main {
     }
 
     public static void main(String[] args) {
+        // Startup phase timing. The packaged build is judged on cold start, so each phase
+        // reports its own wall time instead of one opaque number.
+        long bootNanos = System.nanoTime();
         Options options = parseOptions(args);
         traceResources = hasFlag(args, "--trace-resources");
         ignoreCloseRequests = hasFlag(args, "--ignore-close-requests");
@@ -180,6 +183,7 @@ public final class Main {
         SkijaGlBackend backend = null;
         QmlView view = null;
         try {
+            long afterDataNanos = System.nanoTime();
             if (!GLFW.glfwInit()) {
                 throw new IllegalStateException("glfwInit() failed - GLFW cannot start on this "
                         + "session (headless / no window station / no display)");
@@ -228,6 +232,7 @@ public final class Main {
                     + " renderer=" + org.lwjgl.opengl.GL11.glGetString(org.lwjgl.opengl.GL11.GL_RENDERER)
                     + " version=" + org.lwjgl.opengl.GL11.glGetString(org.lwjgl.opengl.GL11.GL_VERSION));
 
+            long afterGlfwNanos = System.nanoTime();
             directContext = DirectContext.makeGL();
             backend = new SkijaGlBackend(window, directContext);
 
@@ -257,6 +262,7 @@ public final class Main {
             // passing "main.qml" makes it probe "main.qml/qmldir" and the Theme singleton
             // is never found ("unknown identifier: Theme"). With "" the probes are exactly
             // "qmldir" and "Theme.qml" - both served by the classpath ResourceLoader.
+            long afterSkijaNanos = System.nanoTime();
             view.load(source, "");
             System.out.println("[selkie] loaded QML entry '" + options.qml() + "' ("
                     + source.length() + " chars); root=" + view.root());
@@ -276,6 +282,14 @@ public final class Main {
             GLFW.glfwShowWindow(window);
             GLFW.glfwFocusWindow(window);
             System.out.println("[selkie] window shown: " + title);
+            long readyNanos = System.nanoTime();
+            System.out.println(String.format(java.util.Locale.ROOT,
+                    "[boot] data+jvm=%dms glfw=%dms skija=%dms qml=%dms total=%dms",
+                    (afterDataNanos - bootNanos) / 1_000_000,
+                    (afterGlfwNanos - afterDataNanos) / 1_000_000,
+                    (afterSkijaNanos - afterGlfwNanos) / 1_000_000,
+                    (readyNanos - afterSkijaNanos) / 1_000_000,
+                    (readyNanos - bootNanos) / 1_000_000));
             System.out.println("[selkie] READY");
 
             runLoop(view, backend, window, options, theme, motion, input, data);
